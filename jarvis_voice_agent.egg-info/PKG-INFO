@@ -1,0 +1,35 @@
+Metadata-Version: 2.4
+Name: jarvis-voice-agent
+Version: 0.1.0
+Summary: Modular Jarvis voice assistant orchestrator with streaming Cheetah/Vosk ASR, Kokoro TTS, and floating ring UI.
+Author-email: Crenoir Labs <dev@crenoir.example>
+Requires-Python: >=3.11
+Requires-Dist: fastapi>=0.111.0
+Requires-Dist: uvicorn[standard]>=0.30.0
+Requires-Dist: pydantic>=2.7.0
+Requires-Dist: pydantic-settings>=2.2.1
+Requires-Dist: sqlalchemy>=2.0.0
+Requires-Dist: asyncpg>=0.29.0
+Requires-Dist: pgvector>=0.2.5
+Requires-Dist: httpx[http2]>=0.27.0
+Requires-Dist: structlog>=24.1.0
+Requires-Dist: python-dotenv>=1.0.0
+Requires-Dist: opentelemetry-api>=1.25.0
+Requires-Dist: opentelemetry-sdk>=1.25.0
+Requires-Dist: opentelemetry-exporter-otlp>=1.25.0
+Requires-Dist: websockets>=12.0
+Requires-Dist: aiohttp>=3.9.0
+Requires-Dist: sounddevice>=0.4.6
+Requires-Dist: soundfile>=0.12.0
+Requires-Dist: numpy>=1.26.0
+Requires-Dist: tenacity>=8.2.0
+Requires-Dist: pvcheetah>=2.0.0
+Requires-Dist: vosk>=0.3.45
+Requires-Dist: langdetect>=1.0.9
+Requires-Dist: psutil>=5.9.0
+Requires-Dist: greenlet>=3.0.0
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-asyncio; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Requires-Dist: mypy; extra == "dev"

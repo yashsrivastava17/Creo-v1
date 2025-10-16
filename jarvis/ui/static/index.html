@@ -1,0 +1,1099 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jarvis Voice Console</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg-primary: #090e1a;
+        --bg-secondary: linear-gradient(145deg, #0d1322, #060910);
+        --accent: #4ade80;
+        --accent-soft: rgba(74, 222, 128, 0.12);
+        --accent-strong: #22c55e;
+        --card-bg: #0f172a;
+        --card-shadow: 12px 12px 24px rgba(0, 0, 0, 0.45), -8px -8px 18px rgba(36, 54, 86, 0.45);
+        --border-soft: rgba(148, 163, 184, 0.12);
+        --text-soft: #94a3b8;
+        --text-strong: #e2e8f0;
+        --danger: #f87171;
+        --warning: #facc15;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Inter", "SF Pro Display", "Segoe UI", sans-serif;
+        background: var(--bg-secondary);
+        color: var(--text-strong);
+        display: flex;
+        justify-content: center;
+      }
+
+      .app-shell {
+        width: 100%;
+        max-width: 1400px;
+        display: flex;
+        gap: 24px;
+        padding: 32px;
+      }
+
+      .control-panel {
+        width: 320px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .skeuo-card {
+        background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.05), rgba(15, 23, 42, 0.92));
+        border: 1px solid var(--border-soft);
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: var(--card-shadow);
+        backdrop-filter: blur(12px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+
+      .brand span {
+        font-size: 0.8rem;
+        color: var(--accent);
+        background: var(--accent-soft);
+        padding: 4px 8px;
+        border-radius: 999px;
+      }
+
+      label.section-title {
+        display: block;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--text-soft);
+        margin-bottom: 8px;
+      }
+
+      select, button {
+        font: inherit;
+      }
+
+      select.app-select {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: rgba(15, 23, 42, 0.65);
+        color: var(--text-strong);
+        box-shadow: inset 2px 2px 6px rgba(0, 0, 0, 0.45);
+      }
+
+      .voice-card-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      .voice-card {
+        border-radius: 14px;
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        box-shadow: inset 4px 4px 8px rgba(0, 0, 0, 0.5), inset -4px -4px 8px rgba(56, 78, 110, 0.25);
+      }
+
+      .voice-card h3 {
+        margin: 0;
+        font-size: 0.95rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+      }
+
+      .voice-controls {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .voice-controls button {
+        border: 0;
+        border-radius: 10px;
+        padding: 6px 12px;
+        cursor: pointer;
+        transition: transform 0.15s ease;
+      }
+
+      .voice-controls button:hover {
+        transform: translateY(-1px);
+      }
+
+      .btn-preview-en {
+        background: rgba(37, 99, 235, 0.8);
+        color: #dbeafe;
+      }
+
+      .btn-preview-hi {
+        background: rgba(147, 51, 234, 0.8);
+        color: #ede9fe;
+      }
+
+      .btn-save-voice {
+        background: rgba(34, 197, 94, 0.85);
+        color: #ecfdf5;
+        margin-left: auto;
+      }
+
+      .agent-monitor, .system-usage, .tts-history {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .agent-steps {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: 220px;
+        overflow-y: auto;
+      }
+
+      .agent-step {
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.85rem;
+      }
+
+      .agent-step .status {
+        font-size: 0.75rem;
+        padding: 4px 8px;
+        border-radius: 999px;
+      }
+
+      .status-running { background: rgba(59, 130, 246, 0.18); color: #bfdbfe; }
+      .status-complete { background: rgba(34, 197, 94, 0.18); color: #bbf7d0; }
+      .status-error { background: rgba(248, 113, 113, 0.18); color: #fecaca; }
+      .status-applied { background: rgba(250, 204, 21, 0.18); color: #fef08a; }
+      .status-queued { background: rgba(148, 163, 184, 0.18); color: #e2e8f0; }
+
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .pill {
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        font-size: 0.8rem;
+      }
+
+      .chat-area {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .top-strip {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .status-pill, .timer-pill {
+        padding: 10px 16px;
+        border-radius: 14px;
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.35), inset -3px -3px 6px rgba(54, 78, 110, 0.25);
+        font-weight: 500;
+      }
+
+      .ring-section {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .ring {
+        width: 200px;
+        height: 200px;
+        border-radius: 50%;
+        background: radial-gradient(circle at top left, rgba(255, 255, 255, 0.06), rgba(15, 23, 42, 0.95));
+        border: 2px solid rgba(148, 163, 184, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: inset 8px 8px 18px rgba(0, 0, 0, 0.55), inset -6px -6px 16px rgba(59, 130, 246, 0.18);
+        cursor: pointer;
+        transition: box-shadow 0.2s ease;
+      }
+
+      .ring.active {
+        box-shadow: inset 12px 12px 30px rgba(0, 0, 0, 0.6), inset -10px -10px 28px rgba(74, 222, 128, 0.25), 0 0 45px rgba(74, 222, 128, 0.25);
+      }
+
+      .ring.manual {
+        box-shadow: inset 12px 12px 30px rgba(0, 0, 0, 0.6), inset -10px -10px 28px rgba(59, 130, 246, 0.35);
+      }
+
+      .ring.speaking {
+        box-shadow: inset 12px 12px 30px rgba(0, 0, 0, 0.6), inset -10px -10px 28px rgba(250, 204, 21, 0.25), 0 0 45px rgba(250, 204, 21, 0.2);
+      }
+
+      .audio-meter {
+        width: 60%;
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        overflow: hidden;
+        box-shadow: inset 2px 2px 6px rgba(0, 0, 0, 0.45);
+      }
+
+      .audio-meter-fill {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, #22d3ee, #4ade80);
+        transition: width 0.12s ease;
+      }
+
+      .live-transcript {
+        min-height: 28px;
+        font-size: 1rem;
+        color: var(--accent);
+        letter-spacing: 0.02em;
+      }
+
+      .voice-banner {
+        padding: 12px 16px;
+        border-radius: 14px;
+        background: rgba(37, 99, 235, 0.12);
+        border: 1px solid rgba(37, 99, 235, 0.25);
+        font-size: 0.9rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        backdrop-filter: blur(10px);
+      }
+
+      .voice-banner span.label {
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 0.7rem;
+        color: #bfdbfe;
+      }
+
+      .system-tags {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .chat-panel {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .chat-log {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        padding-right: 6px;
+      }
+
+      .chat-message {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: rgba(15, 23, 42, 0.75);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+        box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.4), inset -3px -3px 6px rgba(59, 130, 246, 0.18);
+      }
+
+      .chat-message.user {
+        align-self: flex-end;
+        background: rgba(34, 197, 94, 0.12);
+        border-color: rgba(34, 197, 94, 0.32);
+      }
+
+      .chat-message.assistant {
+        border-color: rgba(59, 130, 246, 0.28);
+      }
+
+      .chat-message.transcript {
+        border-style: dashed;
+        border-color: rgba(250, 204, 21, 0.28);
+      }
+
+      .chat-message span {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-soft);
+      }
+
+      .chat-message p {
+        margin: 0;
+        line-height: 1.5;
+      }
+
+      .chat-form {
+        display: flex;
+        gap: 12px;
+      }
+
+      .chat-form input {
+        flex: 1;
+        padding: 12px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        background: rgba(15, 23, 42, 0.6);
+        color: var(--text-strong);
+        box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.45);
+      }
+
+      .chat-form button {
+        padding: 12px 16px;
+        border-radius: 12px;
+        border: 0;
+        background: var(--accent);
+        color: #052e16;
+        font-weight: 600;
+        cursor: pointer;
+        box-shadow: 0 10px 20px rgba(34, 197, 94, 0.25);
+      }
+
+      @media (max-width: 1100px) {
+        .app-shell {
+          flex-direction: column;
+          padding: 24px;
+        }
+        .control-panel {
+          width: 100%;
+          flex-direction: row;
+          flex-wrap: wrap;
+        }
+        .control-panel > .skeuo-card {
+          flex: 1 1 280px;
+        }
+      }
+
+      @media (max-width: 768px) {
+        .app-shell {
+          padding: 20px 16px 40px;
+        }
+        .chat-area {
+          order: -1;
+        }
+        .control-panel {
+          gap: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body tabindex="0">
+    <div class="app-shell">
+      <aside class="control-panel">
+        <div class="skeuo-card brand">
+          <div>Jarvis Voice Agent</div>
+          <span>Console</span>
+        </div>
+
+        <div class="skeuo-card">
+          <label class="section-title" for="model-select">LLM Model</label>
+          <select id="model-select" class="app-select"></select>
+        </div>
+
+        <div class="skeuo-card persona-card">
+          <label class="section-title">Conversation Persona</label>
+          <div class="persona-overview" id="persona-info" style="display:flex;flex-direction:column;gap:6px;">
+            <span id="persona-name">Persona: default</span>
+            <small id="persona-voice">Voice: male • normal</small>
+            <select id="persona-select" class="app-select"></select>
+          </div>
+        </div>
+
+        <div class="skeuo-card voice-card-stack" id="voice-persona-panel">
+          <div class="voice-card" data-persona="male">
+            <h3>Male Voice</h3>
+            <select class="voice-variant app-select"></select>
+            <div class="voice-controls">
+              <button type="button" class="btn-preview-en preview-en">Preview EN</button>
+              <button type="button" class="btn-preview-hi preview-hi">Preview HI</button>
+              <button type="button" class="btn-save-voice save-voice">Save Default</button>
+            </div>
+          </div>
+          <div class="voice-card" data-persona="female">
+            <h3>Female Voice</h3>
+            <select class="voice-variant app-select"></select>
+            <div class="voice-controls">
+              <button type="button" class="btn-preview-en preview-en">Preview EN</button>
+              <button type="button" class="btn-preview-hi preview-hi">Preview HI</button>
+              <button type="button" class="btn-save-voice save-voice">Save Default</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="skeuo-card agent-monitor">
+          <label class="section-title">LLM Agent Steps</label>
+          <ul class="agent-steps" id="agent-steps"></ul>
+        </div>
+
+        <div class="skeuo-card system-usage">
+          <label class="section-title">System Usage</label>
+          <div class="pill-row" id="system-pills"></div>
+        </div>
+
+        <div class="skeuo-card tts-history">
+          <label class="section-title">TTS Sessions</label>
+          <div id="tts-history" style="display:flex;flex-direction:column;gap:6px;max-height:160px;overflow-y:auto;"></div>
+          <button type="button" id="refresh-tts" style="align-self:flex-start;background:rgba(59,130,246,0.2);color:#bfdbfe;border:0;padding:8px 12px;border-radius:10px;cursor:pointer;">Refresh</button>
+        </div>
+      </aside>
+
+      <main class="chat-area">
+        <div class="top-strip">
+          <div class="status-pill" id="state">IDLE</div>
+          <div class="timer-pill" id="tts-timer">Processing Kokoro: 00:00</div>
+        </div>
+
+        <section class="ring-section">
+          <div class="ring" id="ring">
+            <div class="audio-meter">
+              <div class="audio-meter-fill" id="audio-meter-fill"></div>
+            </div>
+          </div>
+          <div class="live-transcript" id="live-transcript"></div>
+        </section>
+
+      <div class="voice-banner" id="voice-banner">
+        <span class="label">Voice Input</span>
+        <span id="voice-banner-text">Idle</span>
+        <small style="margin-left:auto;color:#cbd5f5;font-size:0.7rem;letter-spacing:0.08em;">Press '/' to push-to-talk</small>
+      </div>
+
+        <div class="system-tags" id="system-tags"></div>
+
+        <section class="chat-panel skeuo-card">
+          <div class="chat-log" id="chat-log">
+            <div class="chat-empty" id="chat-empty">Start a quick text chat or use the wake word.</div>
+          </div>
+          <form class="chat-form" id="chat-form">
+            <input id="chat-input" type="text" autocomplete="off" placeholder="Type a message" />
+            <button type="submit">Send</button>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const stateEl = document.getElementById("state");
+      const ringEl = document.getElementById("ring");
+      const chatForm = document.getElementById("chat-form");
+      const chatInput = document.getElementById("chat-input");
+      const chatLog = document.getElementById("chat-log");
+      const chatEmpty = document.getElementById("chat-empty");
+      const personaNameEl = document.getElementById("persona-name");
+      const personaVoiceEl = document.getElementById("persona-voice");
+      const personaSelect = document.getElementById("persona-select");
+      const voicePanel = document.getElementById("voice-persona-panel");
+      const voiceCards = Array.from(voicePanel.querySelectorAll(".voice-card"));
+      const voicePreviewAudio = new Audio();
+      const asrEl = document.getElementById("state"); // fallback for ASR status via state pill subtitle
+      const audioMeterFill = document.getElementById("audio-meter-fill");
+      const liveTranscriptEl = document.getElementById("live-transcript");
+      const ttsTimerEl = document.getElementById("tts-timer");
+      const voiceBannerText = document.getElementById("voice-banner-text");
+      const systemTagsEl = document.getElementById("system-tags");
+      const systemPillsEl = document.getElementById("system-pills");
+      const agentStepsEl = document.getElementById("agent-steps");
+      const refreshTtsBtn = document.getElementById("refresh-tts");
+      const ttsHistoryEl = document.getElementById("tts-history");
+      const modelSelect = document.getElementById("model-select");
+
+      const SAMPLE_TEXT_EN = "Good morning, this is Creo.";
+      const SAMPLE_TEXT_HI = "सुप्रभात, यह क्रेओ बोल रहा है।";
+      const energyNormalizer = 2000;
+      let manualActive = false;
+      let currentPersonaProfile = null;
+      let ttsTimer = null;
+      let ttsStart = 0;
+      const agentSteps = new Map();
+
+      function applyState(state) {
+        stateEl.textContent = state;
+        ringEl.classList.remove("active", "speaking", "manual");
+        if (["LISTENING", "HOTWORD_HEARD", "COMPOSING", "MAINTENANCE"].includes(state)) {
+          ringEl.classList.add("active");
+        }
+        if (state === "SPEAKING") {
+          ringEl.classList.add("speaking");
+        }
+        if (state === "IDLE" && manualActive) {
+          ringEl.classList.add("manual");
+        }
+        if (state === "IDLE" && voiceBannerText) {
+          voiceBannerText.textContent = "Idle";
+        }
+      }
+
+      function appendChatMessage(role, text, personaProfile = null) {
+        if (chatEmpty) {
+          chatEmpty.remove();
+        }
+        const wrapper = document.createElement("div");
+        wrapper.className = `chat-message ${role}`;
+
+        const label = document.createElement("span");
+        if (role === "assistant" && personaProfile) {
+          const personaName = personaProfile.name ?? "Creo";
+          label.textContent = `Creo (${personaName})`;
+        } else {
+          label.textContent = role === "user" ? "You" : "Creo";
+        }
+
+        const body = document.createElement("p");
+        body.textContent = text;
+
+        wrapper.appendChild(label);
+        wrapper.appendChild(body);
+        if (role === "assistant" && personaProfile) {
+          const meta = document.createElement("small");
+          const voicePersona = personaProfile.voice_persona ?? "--";
+          const voiceVariant = personaProfile.voice_variant ?? "default";
+          meta.textContent = `Voice ${voicePersona} • ${voiceVariant}`;
+          wrapper.appendChild(meta);
+        }
+        chatLog.appendChild(wrapper);
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      function appendVoiceTranscript(text, personaProfile = null) {
+        if (!text) return;
+        if (chatEmpty) {
+          chatEmpty.remove();
+        }
+        const wrapper = document.createElement("div");
+        wrapper.className = "chat-message transcript";
+
+        const label = document.createElement("span");
+        label.textContent = "Voice Input";
+        const body = document.createElement("p");
+        body.textContent = text;
+
+        wrapper.appendChild(label);
+        wrapper.appendChild(body);
+
+        if (personaProfile) {
+          const meta = document.createElement("small");
+          const personaName = personaProfile.name ?? "default";
+          const voicePersona = personaProfile.voice_persona ?? "--";
+          const voiceVariant = personaProfile.voice_variant ?? "default";
+          meta.textContent = `Persona ${personaName} • Voice ${voicePersona} • ${voiceVariant}`;
+          wrapper.appendChild(meta);
+        }
+        chatLog.appendChild(wrapper);
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      function updatePersonaInfo(profile) {
+        if (!profile) return;
+        currentPersonaProfile = profile;
+        if (personaNameEl) {
+          personaNameEl.textContent = `Persona: ${profile.name ?? "default"}`;
+        }
+        if (personaVoiceEl) {
+          const vPersona = profile.voice_persona ?? "--";
+          const vVariant = profile.voice_variant ?? "default";
+          personaVoiceEl.textContent = `Voice: ${vPersona} • ${vVariant}`;
+        }
+        if (personaSelect && profile?.name) {
+          personaSelect.value = String(profile.name);
+        }
+      }
+
+      function updateAudioMeter(level) {
+        if (!audioMeterFill || typeof level !== "number" || Number.isNaN(level)) return;
+        const clipped = Math.max(0, Math.min(level / energyNormalizer, 1));
+        const scaled = Math.pow(clipped, 0.6);
+        audioMeterFill.style.width = `${Math.round(scaled * 100)}%`;
+      }
+
+      function setLiveTranscript(text) {
+        if (liveTranscriptEl) liveTranscriptEl.textContent = text || "";
+        voiceBannerText.textContent = text ? text : "Idle";
+      }
+
+      function startTTSTimer() {
+        if (!ttsTimerEl) return;
+        if (ttsTimer) clearInterval(ttsTimer);
+        ttsStart = Date.now();
+        ttsTimerEl.textContent = "Processing Kokoro: 00:00";
+        ttsTimer = setInterval(() => {
+          const elapsed = Math.floor((Date.now() - ttsStart) / 1000);
+          const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
+          const ss = String(elapsed % 60).padStart(2, "0");
+          ttsTimerEl.textContent = `Processing Kokoro: ${mm}:${ss}`;
+        }, 200);
+      }
+
+      function stopTTSTimer(finalSeconds) {
+        if (ttsTimer) {
+          clearInterval(ttsTimer);
+          ttsTimer = null;
+        }
+        if (!ttsTimerEl) return;
+        if (typeof finalSeconds === "number" && !Number.isNaN(finalSeconds)) {
+          const mm = String(Math.floor(finalSeconds / 60)).padStart(2, "0");
+          const ss = String(Math.floor(finalSeconds % 60)).padStart(2, "0");
+          ttsTimerEl.textContent = `Processing Kokoro: ${mm}:${ss}`;
+        } else {
+          ttsTimerEl.textContent = "Processing Kokoro: 00:00";
+        }
+      }
+
+      function updateAgentSteps(payload) {
+        if (!agentStepsEl) return;
+        const { id, name, status, provider } = payload;
+        const detail = { ...payload };
+        agentSteps.set(id, { name, status, provider, detail });
+        while (agentSteps.size > 20) {
+          const firstKey = agentSteps.keys().next().value;
+          agentSteps.delete(firstKey);
+        }
+        agentStepsEl.innerHTML = "";
+        Array.from(agentSteps.entries())
+          .sort((a, b) => a[0] - b[0])
+          .forEach(([, step]) => {
+            const li = document.createElement("li");
+            li.className = "agent-step";
+            const title = document.createElement("div");
+            title.textContent = `${step.name}${step.provider ? ` • ${step.provider}` : ""}`;
+            const status = document.createElement("span");
+            status.className = `status status-${step.status}`;
+            status.textContent = step.status.toUpperCase();
+            li.appendChild(title);
+            li.appendChild(status);
+            agentStepsEl.appendChild(li);
+          });
+      }
+
+      function updateSystemPills(payload) {
+        if (!systemPillsEl) return;
+        const pills = [];
+        if (typeof payload.cpu_percent === "number") {
+          pills.push(`CPU ${payload.cpu_percent.toFixed(1)}%`);
+        }
+        if (typeof payload.mem_percent === "number") {
+          pills.push(`MEM ${payload.mem_percent.toFixed(1)}%`);
+        }
+        if (typeof payload.rss_mb === "number") {
+          pills.push(`RSS ${payload.rss_mb.toFixed(0)} MB`);
+        }
+        systemPillsEl.innerHTML = "";
+        pills.forEach((text) => {
+          const pill = document.createElement("div");
+          pill.className = "pill";
+          pill.textContent = text;
+          systemPillsEl.appendChild(pill);
+        });
+      }
+
+      function updateSystemTags(payload) {
+        if (!systemTagsEl) return;
+        if (payload && payload.text) {
+          const tag = document.createElement("div");
+          tag.className = "pill";
+          tag.textContent = payload.text;
+          systemTagsEl.prepend(tag);
+          while (systemTagsEl.childNodes.length > 6) {
+            systemTagsEl.removeChild(systemTagsEl.lastChild);
+          }
+        }
+      }
+
+      async function loadPersonas() {
+        try {
+          const res = await fetch("/persona/list");
+          if (!res.ok) return;
+          const data = await res.json();
+          const personas = Array.isArray(data.personas) ? data.personas : [];
+          if (personaSelect) {
+            personaSelect.innerHTML = personas.map((p) => `<option value="${p.name}">${p.name}</option>`).join("");
+          }
+        } catch (err) {
+          console.warn("persona load failed", err);
+        }
+      }
+
+      async function refreshVoicePanel() {
+        try {
+          const res = await fetch("/voice/personas");
+          if (!res.ok) return;
+          const data = await res.json();
+          const personas = data.personas || {};
+          voiceCards.forEach((card) => {
+            const persona = card.dataset.persona;
+            const select = card.querySelector(".voice-variant");
+            const info = personas?.[persona];
+            if (!select || !info) return;
+            const variants = Array.isArray(info.variants) ? info.variants : [];
+            select.innerHTML = variants.map((v) => `<option value="${v}">${v}</option>`).join("");
+            if (info.default_variant && variants.includes(info.default_variant)) {
+              select.value = info.default_variant;
+            }
+          });
+        } catch (err) {
+          console.warn("voice persona load failed", err);
+        }
+      }
+
+      async function previewVoiceVariant(persona, variant, sampleText) {
+        try {
+          const res = await fetch("/api/tts/speak", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ persona, variant, text: sampleText }),
+          });
+          if (!res.ok) {
+            console.warn("preview failed", res.status);
+            return;
+          }
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          voicePreviewAudio.src = url;
+          await voicePreviewAudio.play().catch(() => {});
+        } catch (err) {
+          console.warn("preview error", err);
+        }
+      }
+
+      async function saveVoiceDefault(persona, variant) {
+        try {
+          const res = await fetch("/voice/personas/set-default", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ persona, variant }),
+          });
+          if (!res.ok) {
+            const msg = await res.text();
+            appendChatMessage("assistant", `Voice save failed (${res.status}): ${msg}`);
+            return;
+          }
+          appendChatMessage("assistant", `Saved ${persona} voice as ${variant}`);
+          await refreshVoicePanel();
+        } catch (err) {
+          console.warn("voice save error", err);
+        }
+      }
+
+      async function loadModelOptions() {
+        if (!modelSelect) return;
+        try {
+          const res = await fetch("/llm/provider/options");
+          if (!res.ok) return;
+          const data = await res.json();
+          const providers = Array.isArray(data.providers) ? data.providers : [];
+          modelSelect.innerHTML = providers
+            .map((provider) => `<option value="${provider}">${provider}</option>`)
+            .join("");
+          const currentRes = await fetch("/llm/provider");
+          if (currentRes.ok) {
+            const current = await currentRes.json();
+            if (current.provider && providers.includes(current.provider)) {
+              modelSelect.value = current.provider;
+            }
+          }
+        } catch (err) {
+          console.warn("model list failed", err);
+        }
+      }
+
+      async function refreshTTSSessions() {
+        try {
+          const res = await fetch("/tts/sessions");
+          if (!res.ok) return;
+          const data = await res.json();
+          const sessions = Array.isArray(data.sessions) ? data.sessions.slice(-8).reverse() : [];
+          ttsHistoryEl.innerHTML = sessions
+            .map((s) => {
+              const date = new Date(s.timestamp * 1000).toLocaleTimeString();
+              const secs = Number(s.duration || 0).toFixed(1);
+              return `<div class="pill">${date} • ${s.mode} • ${secs}s</div>`;
+            })
+            .join("");
+        } catch (err) {
+          console.warn("tts history load failed", err);
+        }
+      }
+
+      function callManual(endpoint) {
+        return fetch(endpoint, { method: "POST" });
+      }
+
+      function handleLLMAgent(payload) {
+        updateAgentSteps(payload);
+      }
+
+      const ws = new WebSocket(`ws://${location.host}/ws/state`);
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.state && data.state !== "LLM_AGENT") {
+          applyState(data.state);
+        }
+
+        if (data.payload?.asr_engine) {
+          stateEl.textContent = `${data.state} • ${data.payload.asr_engine} (${data.payload.language ?? "--"})`;
+        }
+
+        if (typeof data.payload?.audio_level === "number") {
+          updateAudioMeter(data.payload.audio_level);
+        }
+
+        if (data.state === "PERSONA") {
+          updatePersonaInfo(data.payload);
+          refreshVoicePanel();
+        }
+        if (data.payload?.persona_profile) {
+          updatePersonaInfo(data.payload.persona_profile);
+        }
+
+        if (data.state === "HOTWORD_HEARD" && data.payload?.keyword === "manual") {
+          manualActive = true;
+          ringEl.classList.add("manual");
+        }
+        if (data.state === "IDLE") {
+          manualActive = false;
+          ringEl.classList.remove("manual");
+        }
+
+        if (data.state === "RESOURCE") {
+          updateSystemPills(data.payload ?? {});
+          return;
+        }
+
+        if (data.state === "LLM_AGENT") {
+          handleLLMAgent(data.payload ?? data);
+          return;
+        }
+
+        if (data.state === "COMPOSING" && data.payload?.transcript) {
+          updateSystemTags({ text: data.payload.transcript });
+        }
+
+        if (data.payload?.transcript) {
+          setLiveTranscript(data.payload.transcript);
+          if (data.state === "LISTENING" && data.payload?.is_final) {
+            appendVoiceTranscript(data.payload.transcript, data.payload.persona_profile ?? currentPersonaProfile);
+          }
+        }
+
+        if (data.payload?.tts_status === "starting") {
+          startTTSTimer();
+        }
+        if (data.payload?.tts_status === "complete") {
+          const duration = data.payload.tts_duration ?? 0;
+          stopTTSTimer(duration);
+          refreshTTSSessions();
+        }
+
+        if (data.payload?.text && data.state === "SPEAKING") {
+          appendChatMessage(
+            data.payload?.mode === "text" ? "assistant" : "assistant",
+            data.payload.text,
+            data.payload.persona ?? currentPersonaProfile,
+          );
+        }
+      };
+      ws.onopen = () => console.log("Floating UI connected");
+      ws.onclose = () => applyState("IDLE");
+
+      if (personaSelect) {
+        loadPersonas();
+        personaSelect.addEventListener("change", async (event) => {
+          const name = event.target.value;
+          try {
+            const res = await fetch("/persona/set", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data?.profile) updatePersonaInfo(data.profile);
+            }
+          } catch (err) {
+            console.warn("persona set failed", err);
+          }
+        });
+      }
+
+      refreshVoicePanel();
+      voiceCards.forEach((card) => {
+        const persona = card.dataset.persona;
+        const select = card.querySelector(".voice-variant");
+        const previewEn = card.querySelector(".preview-en");
+        const previewHi = card.querySelector(".preview-hi");
+        const saveBtn = card.querySelector(".save-voice");
+        const currentVariant = () => (select ? select.value : null);
+        previewEn?.addEventListener("click", () => previewVoiceVariant(persona, currentVariant(), SAMPLE_TEXT_EN));
+        previewHi?.addEventListener("click", () => previewVoiceVariant(persona, currentVariant(), SAMPLE_TEXT_HI));
+        saveBtn?.addEventListener("click", () => {
+          const variant = currentVariant();
+          if (variant) saveVoiceDefault(persona, variant);
+        });
+      });
+
+      loadModelOptions();
+      modelSelect.addEventListener("change", async (event) => {
+        const provider = event.target.value;
+        try {
+          const res = await fetch("/llm/provider", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ provider }),
+          });
+          if (!res.ok) {
+            const msg = await res.text();
+            appendChatMessage("assistant", `Model switch failed (${res.status}): ${msg}`);
+          } else {
+            const data = await res.json();
+            appendChatMessage("assistant", `Using ${data.provider} for orchestration.`);
+          }
+        } catch (err) {
+          console.warn("model switch failed", err);
+        }
+      });
+
+      refreshTTSSessions();
+      refreshTtsBtn?.addEventListener("click", refreshTTSSessions);
+
+      chatForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const text = chatInput.value.trim();
+        if (!text) return;
+        appendChatMessage("user", text);
+        chatInput.value = "";
+        try {
+          const response = await fetch("/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+          });
+          if (!response.ok) {
+            const detail = await response.text();
+            appendChatMessage("assistant", `Error: ${detail || response.status}`);
+            return;
+          }
+          const data = await response.json();
+          appendChatMessage("assistant", data.text || "(no response)", currentPersonaProfile);
+        } catch (err) {
+          console.error(err);
+          appendChatMessage("assistant", "Couldn't reach the assistant. Is it running?", currentPersonaProfile);
+        }
+      });
+
+      ringEl.addEventListener("click", async () => {
+        try {
+          if (!manualActive) {
+            const resp = await callManual("/manual/wake/start");
+            if (!resp.ok) throw new Error(`manual start failed ${resp.status}`);
+            manualActive = true;
+            ringEl.classList.add("manual");
+          } else {
+            const resp = await callManual("/manual/wake/stop");
+            if (!resp.ok) throw new Error(`manual stop failed ${resp.status}`);
+            manualActive = false;
+            ringEl.classList.remove("manual");
+          }
+        } catch (err) {
+          console.error(err);
+          appendChatMessage("assistant", "Manual control failed. Check server logs.");
+        }
+      });
+
+      document.body.addEventListener("keydown", async (event) => {
+        if (event.key.toLowerCase() === "l" && !event.metaKey && !event.ctrlKey) {
+          event.preventDefault();
+          try {
+            const response = await fetch("/asr/toggle-lang", { method: "POST" });
+            if (!response.ok) console.warn("toggle-lang failed", response.status);
+          } catch (e) {
+            console.warn("toggle-lang error", e);
+          }
+          return;
+        }
+        if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+          if (document.activeElement === chatInput) return;
+          if (!manualActive) {
+            event.preventDefault();
+            try {
+              const resp = await callManual("/manual/wake/start");
+              if (!resp.ok) throw new Error(`manual start failed ${resp.status}`);
+              manualActive = true;
+              ringEl.classList.add("manual");
+            } catch (err) {
+              console.error(err);
+              appendChatMessage("assistant", "Manual start via '/' failed. Check server logs.");
+            }
+          }
+        }
+      });
+
+      document.body.addEventListener("keyup", async (event) => {
+        if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+          if (document.activeElement === chatInput) return;
+          if (manualActive) {
+            event.preventDefault();
+            try {
+              const resp = await callManual("/manual/wake/stop");
+              if (!resp.ok) throw new Error(`manual stop failed ${resp.status}`);
+              manualActive = false;
+              ringEl.classList.remove("manual");
+            } catch (err) {
+              console.error(err);
+              appendChatMessage("assistant", "Manual stop via '/' failed. Check server logs.");
+            }
+          }
+        }
+      });
+
+      window.addEventListener("load", () => {
+        document.body.focus();
+      });
+    </script>
+  </body>
+</html>

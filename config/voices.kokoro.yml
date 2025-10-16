@@ -1,0 +1,55 @@
+personas:
+  male:
+    default_variant: normal
+    variants:
+      normal:
+        hi:
+          hm_omega: 1.3
+          am_puck: 1.0
+          voice: "af_alloy"
+        en:
+          hm_puck: 1.0
+          hm_omega: 0.8
+          voice: "af_alloy"
+      alt2:
+        hi:
+          hm_omega: 1.3
+          am_micheal: 1.0
+          voice: "af_alloy"
+        en:
+          am_micheal: 1.0
+          hm_puck: 1.0
+          voice: "af_alloy"
+      special_weird:
+        any:
+          voice: "Pm_alex"
+  female:
+    default_variant: normal
+    variants:
+      normal:
+        hi:
+          hf_alpha: -1.2
+          af_sky: 0.7
+          voice: "af_sky"
+        en:
+          hf_alpha: 0.4
+          af_sky: 1.0
+          voice: "af_sky"
+      alt2:
+        hi:
+          hf_alpha: -1.2
+          af_aoede: 0.7
+          voice: "af_aoede"
+        en:
+          hf_alpha: 0.4
+          af_aoede: 1.0
+          voice: "af_aoede"
+      special_weird:
+        any:
+          voice: "Pf_Dora"
+routing:
+  camera_events:
+    see_blackie:
+      persona: female
+      variant: special_weird
+      line: "blackieee"
