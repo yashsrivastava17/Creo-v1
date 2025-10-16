@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import io
 from typing import Any, Mapping, Sequence
 
 import httpx
-import sounddevice as sd
-import soundfile as sf
 
+from jarvis.audio.output import AudioOutputController
 from jarvis.lang.script_detect import detect_lang_from_text
 from jarvis.telemetry.logging import get_logger
 from jarvis.tts.voice_router import VoiceRouter, load_router
@@ -20,6 +18,7 @@ class KokoroTTSClient:
         api_key: str | None,
         default_voice_params: Mapping[str, float | str] | None,
         router: VoiceRouter | None = None,
+        audio_output: AudioOutputController | None = None,
     ) -> None:
         self._base_url = base_url
         self._api_key = api_key
@@ -28,6 +27,7 @@ class KokoroTTSClient:
         self._current_persona: str | None = None
         self._current_variant: str | None = None
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0))
+        self._audio_output = audio_output or AudioOutputController()
         self._logger = get_logger(__name__)
 
     async def configure_voice(self, persona: str, variant: str | None = None) -> None:
@@ -177,9 +177,11 @@ class KokoroTTSClient:
         payload, persona_key, resolved_variant, lang = self._build_request(text, voice_overrides, persona, variant)
         start = asyncio.get_running_loop().time()
         audio = await self._fetch_audio(turn_id, payload, persona_key, resolved_variant, lang)
-        await self._play_audio(audio)
+        playback = await self._audio_output.play_bytes(audio, tag=f"tts:{turn_id}")
         end = asyncio.get_running_loop().time()
-        return max(end - start, 0.0)
+        if playback <= 0.0:
+            playback = max(end - start, 0.0)
+        return max(playback, 0.0)
 
     async def synthesize(
         self,
@@ -192,30 +194,7 @@ class KokoroTTSClient:
         return await self._fetch_audio("synthesize", payload, persona_key, resolved_variant, lang)
 
     async def _play_audio(self, audio: bytes) -> None:
-        if not audio:
-            self._logger.warning("kokoro.tts.playback.empty")
-            return
-
-        try:
-            with io.BytesIO(audio) as buffer:
-                data, samplerate = sf.read(buffer, dtype="float32")
-        except Exception as exc:  # pragma: no cover - defensive decoding
-            self._logger.error("kokoro.tts.decode_error", error=str(exc))
-            return
-
-        frames = len(data)
-        self._logger.info("kokoro.tts.playback.start", frames=frames, samplerate=samplerate)
-
-        loop = asyncio.get_running_loop()
-
-        def _blocking_play() -> None:
-            try:
-                sd.play(data, samplerate=samplerate, blocking=True)
-            finally:
-                sd.stop()
-
-        await loop.run_in_executor(None, _blocking_play)
-        self._logger.info("kokoro.tts.playback.complete", frames=frames, samplerate=samplerate)
+        await self._audio_output.play_bytes(audio, tag="tts:legacy")
 
     async def aclose(self) -> None:
         await self._client.aclose()

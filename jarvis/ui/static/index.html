@@ -233,6 +233,44 @@
         font-weight: 500;
       }
 
+      .pill-select {
+        display: flex;
+        align-items: center;
+        border-radius: 14px;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        background: rgba(15, 23, 42, 0.8);
+        box-shadow: inset 3px 3px 6px rgba(0, 0, 0, 0.35), inset -3px -3px 6px rgba(54, 78, 110, 0.25);
+      }
+
+      .pill-select select {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: var(--text-strong);
+        padding: 10px 18px;
+        font-size: 0.85rem;
+        cursor: pointer;
+      }
+
+      .pill-select select:focus {
+        outline: none;
+      }
+
+      .admin-button {
+        padding: 8px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        background: rgba(15, 23, 42, 0.85);
+        color: var(--text-soft);
+        cursor: pointer;
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+
+      .admin-button:hover {
+        background: rgba(59, 130, 246, 0.2);
+        color: #bfdbfe;
+      }
+
       .ring-section {
         position: relative;
         display: flex;
@@ -396,6 +434,212 @@
         box-shadow: 0 10px 20px rgba(34, 197, 94, 0.25);
       }
 
+      .admin-modal {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+        z-index: 2000;
+      }
+
+      .admin-modal.active {
+        opacity: 1;
+        pointer-events: all;
+      }
+
+      .admin-modal-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(9, 14, 26, 0.72);
+        backdrop-filter: blur(8px);
+      }
+
+      .admin-modal-window {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        width: min(900px, 90vw);
+        max-height: 80vh;
+        background: rgba(15, 23, 42, 0.96);
+        border-radius: 18px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        box-shadow: 0 40px 60px rgba(2, 6, 14, 0.55);
+        overflow: hidden;
+        z-index: 1;
+      }
+
+      .admin-modal-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 24px;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+      }
+
+      .admin-modal-header h2 {
+        margin: 0;
+        font-size: 1rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+      }
+
+      .admin-close {
+        border: 0;
+        background: transparent;
+        color: var(--text-soft);
+        font-size: 1.2rem;
+        cursor: pointer;
+      }
+
+      .admin-modal-body {
+        display: flex;
+        min-height: 400px;
+      }
+
+      .admin-sidebar {
+        width: 180px;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid rgba(148, 163, 184, 0.12);
+        background: rgba(9, 14, 26, 0.8);
+      }
+
+      .admin-nav-item {
+        background: transparent;
+        border: 0;
+        padding: 14px 18px;
+        color: var(--text-soft);
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .admin-nav-item.active {
+        background: rgba(59, 130, 246, 0.18);
+        color: #bfdbfe;
+      }
+
+      .admin-content {
+        flex: 1;
+        padding: 24px;
+        overflow-y: auto;
+      }
+
+      .admin-section {
+        display: none;
+        flex-direction: column;
+        gap: 16px;
+      }
+
+      .admin-section.active {
+        display: flex;
+      }
+
+      .admin-hint {
+        margin: 0;
+        font-size: 0.85rem;
+        color: var(--text-soft);
+      }
+
+      .soundfx-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .soundfx-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 12px 16px;
+        border-radius: 12px;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(148, 163, 184, 0.14);
+      }
+
+      .soundfx-row label {
+        flex: 0 0 160px;
+        font-size: 0.85rem;
+        color: var(--text-soft);
+      }
+
+      .soundfx-row select {
+        flex: 1;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(9, 14, 26, 0.8);
+        color: var(--text-strong);
+      }
+
+      .soundfx-upload {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 16px;
+        border: 1px dashed rgba(148, 163, 184, 0.24);
+        border-radius: 12px;
+        background: rgba(9, 14, 26, 0.5);
+      }
+
+      .soundfx-upload label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 0.8rem;
+        color: var(--text-soft);
+      }
+
+      .soundfx-upload select {
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        background: rgba(15, 23, 42, 0.8);
+        color: var(--text-strong);
+      }
+
+      .soundfx-file {
+        position: relative;
+        overflow: hidden;
+        border-radius: 10px;
+        border: 1px solid rgba(148, 163, 184, 0.2);
+        padding: 8px 14px;
+        cursor: pointer;
+        background: rgba(15, 23, 42, 0.65);
+        color: var(--text-soft);
+      }
+
+      .soundfx-file input {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        cursor: pointer;
+      }
+
+      .soundfx-upload button {
+        padding: 8px 16px;
+        border-radius: 10px;
+        border: 0;
+        background: rgba(34, 197, 94, 0.2);
+        color: #bbf7d0;
+        cursor: pointer;
+      }
+
+      .sleep-toggle {
+        font-size: 0.85rem;
+        color: var(--text-soft);
+      }
+
+      .admin-feedback {
+        font-size: 0.8rem;
+        min-height: 18px;
+        color: var(--accent);
+      }
+
       @media (max-width: 1100px) {
         .app-shell {
           flex-direction: column;
@@ -420,6 +664,22 @@
         }
         .control-panel {
           gap: 12px;
+        }
+        .admin-modal-window {
+          width: 94vw;
+        }
+        .admin-modal-body {
+          flex-direction: column;
+        }
+        .admin-sidebar {
+          width: 100%;
+          flex-direction: row;
+          border-right: 0;
+          border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+        }
+        .admin-nav-item {
+          flex: 1;
+          text-align: center;
         }
       }
     </style>
@@ -487,7 +747,13 @@
       <main class="chat-area">
         <div class="top-strip">
           <div class="status-pill" id="state">IDLE</div>
+          <div class="pill-select" id="asr-pill">
+            <select id="asr-select">
+              <option value="" disabled selected>Loading…</option>
+            </select>
+          </div>
           <div class="timer-pill" id="tts-timer">Processing Kokoro: 00:00</div>
+          <button type="button" class="admin-button" id="admin-settings">Admin</button>
         </div>
 
         <section class="ring-section">
@@ -519,6 +785,43 @@
       </main>
     </div>
 
+    <div class="admin-modal" id="admin-modal" aria-hidden="true">
+      <div class="admin-modal-backdrop" id="admin-backdrop"></div>
+      <div class="admin-modal-window">
+        <div class="admin-modal-header">
+          <h2>Admin Settings</h2>
+          <button type="button" class="admin-close" id="admin-close">&times;</button>
+        </div>
+        <div class="admin-modal-body">
+          <nav class="admin-sidebar">
+            <button type="button" class="admin-nav-item active" data-section="soundfx">Sound Effects</button>
+          </nav>
+          <section class="admin-content">
+            <div class="admin-section active" data-section="soundfx">
+              <h3>Sound Effects</h3>
+              <p class="admin-hint">Assign audio cues for wake word, boot sequence, and system states.</p>
+              <div class="soundfx-list" id="soundfx-list"></div>
+              <form id="soundfx-upload" class="soundfx-upload">
+                <label>
+                  Event
+                  <select id="soundfx-upload-event"></select>
+                </label>
+                <label class="soundfx-file">
+                  <span>Choose audio</span>
+                  <input type="file" id="soundfx-file" accept="audio/*" />
+                </label>
+                <button type="submit">Upload</button>
+              </form>
+              <div class="sleep-toggle">
+                <label><input type="checkbox" id="sleep-toggle" /> Sleep Mode</label>
+              </div>
+              <div class="admin-feedback" id="admin-feedback"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+
     <script>
       const stateEl = document.getElementById("state");
       const ringEl = document.getElementById("ring");
@@ -543,6 +846,17 @@
       const refreshTtsBtn = document.getElementById("refresh-tts");
       const ttsHistoryEl = document.getElementById("tts-history");
       const modelSelect = document.getElementById("model-select");
+      const asrSelect = document.getElementById("asr-select");
+      const adminBtn = document.getElementById("admin-settings");
+      const adminModal = document.getElementById("admin-modal");
+      const adminBackdrop = document.getElementById("admin-backdrop");
+      const adminClose = document.getElementById("admin-close");
+      const soundfxListEl = document.getElementById("soundfx-list");
+      const soundfxUploadForm = document.getElementById("soundfx-upload");
+      const soundfxUploadEvent = document.getElementById("soundfx-upload-event");
+      const soundfxFileInput = document.getElementById("soundfx-file");
+      const adminFeedback = document.getElementById("admin-feedback");
+      const sleepToggle = document.getElementById("sleep-toggle");
 
       const SAMPLE_TEXT_EN = "Good morning, this is Creo.";
       const SAMPLE_TEXT_HI = "सुप्रभात, यह क्रेओ बोल रहा है।";
@@ -552,6 +866,8 @@
       let ttsTimer = null;
       let ttsStart = 0;
       const agentSteps = new Map();
+      let currentAsrSelection = "auto";
+      let asrEngines = [];
 
       function applyState(state) {
         stateEl.textContent = state;
@@ -627,6 +943,125 @@
         }
         chatLog.appendChild(wrapper);
         chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      function openAdminModal() {
+        if (!adminModal) return;
+        adminModal.classList.add("active");
+        adminModal.setAttribute("aria-hidden", "false");
+        if (adminFeedback) adminFeedback.textContent = "";
+      }
+
+      function closeAdminModal() {
+        if (!adminModal) return;
+        adminModal.classList.remove("active");
+        adminModal.setAttribute("aria-hidden", "true");
+      }
+
+      function setAdminFeedback(message, isError = false) {
+        if (!adminFeedback) return;
+        adminFeedback.textContent = message || "";
+        adminFeedback.style.color = isError ? "var(--danger)" : "var(--accent)";
+      }
+
+      async function refreshSoundEffects() {
+        if (!soundfxListEl) return;
+        try {
+          const res = await fetch("/admin/sfx");
+          if (!res.ok) return;
+          const data = await res.json();
+          renderSoundEffects(data);
+        } catch (err) {
+          console.warn("soundfx refresh failed", err);
+        }
+      }
+
+      function renderSoundEffects(payload) {
+        if (!soundfxListEl) return;
+        const events = Array.isArray(payload?.events) ? payload.events : [];
+        soundfxListEl.innerHTML = "";
+        events.forEach((evt) => {
+          const row = document.createElement("div");
+          row.className = "soundfx-row";
+          const label = document.createElement("label");
+          label.textContent = evt.label || evt.event;
+          const select = document.createElement("select");
+          const options = Array.isArray(evt.options) ? evt.options : [];
+          if (!options.length) {
+            const opt = document.createElement("option");
+            opt.value = "";
+            opt.textContent = "No files";
+            select.appendChild(opt);
+            select.disabled = true;
+          } else {
+            options.forEach((name) => {
+              const opt = document.createElement("option");
+              opt.value = name;
+              opt.textContent = name;
+              select.appendChild(opt);
+            });
+            if (evt.selected && options.includes(evt.selected)) {
+              select.value = evt.selected;
+            }
+          }
+          select.addEventListener("change", async (event) => {
+            const fileName = event.target.value;
+            if (!fileName) return;
+            try {
+              const resp = await fetch("/admin/sfx/select", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ event: evt.event, file: fileName }),
+              });
+              if (!resp.ok) {
+                throw new Error(await resp.text());
+              }
+              setAdminFeedback(`Assigned ${evt.label || evt.event} to ${fileName}`);
+            } catch (error) {
+              console.warn("soundfx select failed", error);
+              setAdminFeedback("Failed to assign sound effect", true);
+              await refreshSoundEffects();
+            }
+          });
+          row.appendChild(label);
+          row.appendChild(select);
+          soundfxListEl.appendChild(row);
+        });
+
+        if (soundfxUploadEvent) {
+          soundfxUploadEvent.innerHTML = events
+            .map((evt) => `<option value="${evt.event}">${evt.label || evt.event}</option>`)
+            .join("");
+        }
+        if (sleepToggle && typeof payload?.sleep === "boolean") {
+          sleepToggle.checked = payload.sleep;
+        }
+      }
+
+      async function loadASROptions() {
+        if (!asrSelect) return;
+        try {
+          const res = await fetch("/asr/options");
+          if (!res.ok) return;
+          const data = await res.json();
+          asrEngines = Array.isArray(data.engines) ? data.engines : [];
+          if (!asrEngines.length) {
+            asrSelect.innerHTML = '<option value="">No engines</option>';
+            asrSelect.disabled = true;
+            return;
+          }
+          asrSelect.disabled = false;
+          asrSelect.innerHTML = asrEngines
+            .map((engine) => `<option value="${engine}">${engine}</option>`)
+            .join("");
+          currentAsrSelection = typeof data.selected === "string" ? data.selected : "auto";
+          if (!asrEngines.includes(currentAsrSelection)) {
+            currentAsrSelection = asrEngines.includes("auto") ? "auto" : asrEngines[0];
+          }
+          asrSelect.value = currentAsrSelection;
+        } catch (err) {
+          console.warn("asr options load failed", err);
+        }
       }
 
       function updatePersonaInfo(profile) {
@@ -877,6 +1312,9 @@
 
         if (data.payload?.asr_engine) {
           stateEl.textContent = `${data.state} • ${data.payload.asr_engine} (${data.payload.language ?? "--"})`;
+          if (currentAsrSelection !== "auto" && asrSelect && asrEngines.includes(data.payload.asr_engine)) {
+            asrSelect.value = data.payload.asr_engine;
+          }
         }
 
         if (typeof data.payload?.audio_level === "number") {
@@ -998,6 +1436,91 @@
         }
       });
 
+      loadASROptions();
+      asrSelect?.addEventListener("change", async (event) => {
+        const value = event.target.value;
+        if (!value) return;
+        currentAsrSelection = value;
+        try {
+          const res = await fetch("/asr/select", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ engine: value }),
+          });
+          if (!res.ok) {
+            const detail = await res.text();
+            throw new Error(detail || res.statusText);
+          }
+          const data = await res.json();
+          currentAsrSelection = data.selected || value;
+          if (asrSelect) {
+            asrSelect.value = currentAsrSelection;
+          }
+          appendChatMessage("assistant", `Transcription engine set to ${currentAsrSelection}.`);
+        } catch (err) {
+          console.warn("asr engine change failed", err);
+          appendChatMessage("assistant", "Couldn't change transcription engine. Check server logs.");
+          await loadASROptions();
+        }
+      });
+
+      adminBtn?.addEventListener("click", () => {
+        openAdminModal();
+        refreshSoundEffects();
+      });
+      adminClose?.addEventListener("click", closeAdminModal);
+      adminBackdrop?.addEventListener("click", closeAdminModal);
+
+      soundfxUploadForm?.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!soundfxFileInput || !soundfxFileInput.files || !soundfxFileInput.files[0]) {
+          setAdminFeedback("Select an audio file first", true);
+          return;
+        }
+        const form = new FormData();
+        form.append("event", soundfxUploadEvent?.value || "wakeword");
+        form.append("file", soundfxFileInput.files[0]);
+        try {
+          const res = await fetch("/admin/sfx/upload", {
+            method: "POST",
+            body: form,
+          });
+          if (!res.ok) {
+            const detail = await res.text();
+            throw new Error(detail || res.statusText);
+          }
+          const data = await res.json();
+          setAdminFeedback(`Uploaded ${data.file} for ${data.event}`);
+          soundfxFileInput.value = "";
+          await refreshSoundEffects();
+        } catch (err) {
+          console.warn("soundfx upload failed", err);
+          setAdminFeedback("Upload failed", true);
+        }
+      });
+
+      sleepToggle?.addEventListener("change", async (event) => {
+        const enabled = event.target.checked;
+        try {
+          const res = await fetch("/admin/sleep", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled }),
+          });
+          if (!res.ok) {
+            const detail = await res.text();
+            throw new Error(detail || res.statusText);
+          }
+          const data = await res.json();
+          sleepToggle.checked = !!data.sleep;
+          setAdminFeedback(data.sleep ? "Sleep mode enabled" : "Sleep mode disabled");
+        } catch (err) {
+          console.warn("sleep toggle failed", err);
+          setAdminFeedback("Couldn't update sleep mode", true);
+          sleepToggle.checked = !enabled;
+        }
+      });
+
       refreshTTSSessions();
       refreshTtsBtn?.addEventListener("click", refreshTTSSessions);
 
@@ -1046,6 +1569,11 @@
       });
 
       document.body.addEventListener("keydown", async (event) => {
+        if (event.key === "Escape" && adminModal?.classList.contains("active")) {
+          event.preventDefault();
+          closeAdminModal();
+          return;
+        }
         if (event.key.toLowerCase() === "l" && !event.metaKey && !event.ctrlKey) {
           event.preventDefault();
           try {

@@ -6,8 +6,9 @@ import os
 import time
 from io import BytesIO
 from collections.abc import Callable
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, StreamingResponse
 try:
@@ -22,6 +23,8 @@ except Exception:  # pragma: no cover - optional dependency
 from pydantic import BaseModel
 
 from jarvis.audio.capture import AudioCapture
+from jarvis.audio.output import AudioOutputController
+from jarvis.audio.sfx import SoundEffectManager
 from jarvis.audio.wakeword.base import WakeWordEngine
 from jarvis.audio.wakeword.openwakeword import OpenWakeWordEngine
 from jarvis.audio.wakeword.porcupine import PorcupineWakeWordEngine
@@ -138,8 +141,36 @@ async def toggle_asr_language() -> dict[str, str]:
     return {"status": "runtime-unavailable"}
 
 
+@app.get("/asr/options")
+async def list_asr_options() -> dict[str, Any]:
+    runtime = getattr(app.state, "runtime", None)
+    if runtime is None:
+        return {"engines": [], "current": "", "selected": "auto"}
+    return {
+        "engines": runtime.transcriber_options(),
+        "current": runtime.current_transcriber(),
+        "selected": runtime.transcriber_selection(),
+    }
+
+
+@app.post("/asr/select")
+async def select_asr_engine(req: "ASRSelectRequest") -> dict[str, str]:
+    runtime = getattr(app.state, "runtime", None)
+    if runtime is None:
+        raise HTTPException(status_code=503, detail="runtime unavailable")
+    try:
+        engine = await runtime.set_transcriber(req.engine)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"engine": engine, "selected": runtime.transcriber_selection()}
+
+
 class ChatRequest(BaseModel):
     text: str
+
+
+class ASRSelectRequest(BaseModel):
+    engine: str
 
 
 @app.post("/chat")
@@ -160,6 +191,15 @@ class VoiceSpeakRequest(BaseModel):
     persona: str
     variant: str | None = None
     text: str
+
+
+class SoundEffectSelectRequest(BaseModel):
+    event: str
+    file: str
+
+
+class SleepModeRequest(BaseModel):
+    enabled: bool
 
 
 class CameraEventRequest(BaseModel):
@@ -242,6 +282,53 @@ async def tts_speak(req: VoiceSpeakRequest) -> StreamingResponse:
     )
 
 
+@app.get("/admin/sfx")
+async def list_sound_effects() -> dict[str, Any]:
+    runtime = getattr(app.state, "runtime", None)
+    if runtime is None:
+        return {"events": [], "sleep": False}
+    events = await runtime.sound_effects_snapshot()
+    return {"events": events, "sleep": runtime.sleep_mode()}
+
+
+@app.post("/admin/sfx/select")
+async def select_sound_effect(req: SoundEffectSelectRequest) -> dict[str, str]:
+    runtime = getattr(app.state, "runtime", None)
+    if runtime is None:
+        raise HTTPException(status_code=503, detail="runtime unavailable")
+    try:
+        await runtime.select_sound_effect(req.event, req.file)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"status": "ok"}
+
+
+@app.post("/admin/sfx/upload")
+async def upload_sound_effect(event: str = Form(...), file: UploadFile = File(...)) -> dict[str, str]:
+    runtime = getattr(app.state, "runtime", None)
+    if runtime is None:
+        raise HTTPException(status_code=503, detail="runtime unavailable")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty upload")
+    try:
+        saved = await runtime.add_sound_effect(event, file.filename, data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"event": event, "file": saved}
+
+
+@app.post("/admin/sleep")
+async def set_sleep_mode(request: SleepModeRequest) -> dict[str, bool]:
+    runtime = getattr(app.state, "runtime", None)
+    if runtime is None:
+        raise HTTPException(status_code=503, detail="runtime unavailable")
+    state = await runtime.set_sleep_mode(request.enabled)
+    return {"sleep": state}
+
+
 @app.post("/api/events/camera")
 async def camera_event(req: CameraEventRequest) -> dict[str, object]:
     runtime = getattr(app.state, "runtime", None)
@@ -293,9 +380,12 @@ class Runtime:
         router: Router,
         memory: MemoryStore,
         audio: AudioCapture,
+        audio_output: AudioOutputController,
+        soundfx: SoundEffectManager,
         transcriber: TranscriptionEngine,
         transcriber_name: str,
         transcriber_builder: Callable[[str | None], tuple[str, TranscriptionEngine]],
+        transcriber_options: list[str],
         persona: PersonaManager,
         wakeword: WakeWordEngine | None,
         scheduler: SelfMaintenanceScheduler,
@@ -306,9 +396,12 @@ class Runtime:
         self._router = router
         self._memory = memory
         self._audio = audio
+        self._audio_output = audio_output
+        self._soundfx = soundfx
         self._transcriber: TranscriptionEngine | None = transcriber
         self._transcriber_name = transcriber_name
         self._transcriber_builder = transcriber_builder
+        self._transcriber_options = sorted(transcriber_options)
         self._wakeword = wakeword
         self._persona = persona
         self._scheduler = scheduler
@@ -318,9 +411,15 @@ class Runtime:
         self._transcription_task: asyncio.Task | None = None
         self._wake_hit: WakeWordHit | None = None
         self._manual_active = False
+        self._manual_active_deadline = 0.0
         self._listening_active = False
+        self._received_audio_since_activation = False
         self._silence_duration = 0.0
-        self._silence_timeout = 0.6  # seconds of silence to auto-complete
+        self._silence_timeout = 1.2  # seconds of silence to auto-complete
+        self._min_listen_guard = 2.4
+        self._listening_guard_until = 0.0
+        self._transcriber_lock: str | None = None
+        self._sleeping = False
         self._logger = get_logger(__name__)
         self._shutdown_in_progress = False
         self._language_scores: dict[str, float] = {}
@@ -345,6 +444,7 @@ class Runtime:
         await ui_bridge.publish_state("PERSONA", self._persona.active_profile())
         await self._scheduler.start()
         await self._monitor.start()
+        await self._soundfx.play("boot_sequence", await_completion=False)
 
     async def shutdown(self) -> None:
         self._logger.info("runtime.shutdown.start")
@@ -371,6 +471,32 @@ class Runtime:
                 "default_variant": self._voice_router.default_variant(persona),
             }
         return summary
+
+    def _refresh_manual_flag(self) -> None:
+        if not self._manual_active:
+            return
+        if self._manual_active_deadline and time.time() > self._manual_active_deadline:
+            self._manual_active = False
+            self._manual_active_deadline = 0.0
+            self._logger.info("manual.guard.expired")
+
+    def _begin_listening(self, keyword: str) -> None:
+        now = time.time()
+        self._listening_active = True
+        self._silence_duration = 0.0
+        self._received_audio_since_activation = False
+        self._listening_guard_until = now + self._min_listen_guard
+        self._logger.debug(
+            "listen.guard.start",
+            keyword=keyword,
+            guard_seconds=self._min_listen_guard,
+        )
+
+    def _stop_listening(self) -> None:
+        self._listening_active = False
+        self._silence_duration = 0.0
+        self._received_audio_since_activation = False
+        self._listening_guard_until = 0.0
 
     async def set_voice_default(self, persona: str, variant: str) -> dict[str, object]:
         self._voice_router.set_default_variant(persona, variant)
@@ -514,6 +640,7 @@ class Runtime:
 
     async def _run_audio_loop(self) -> None:
         async for frame in self._audio.frames():
+            now_ts = frame.ts or time.time()
             if frame.energy > self._audio.energy_threshold:
                 self._logger.debug("audio.energy.detected", energy=frame.energy)
 
@@ -558,14 +685,19 @@ class Runtime:
             await transcriber.enqueue_audio(frame.pcm16le, frame.ts, frame.vad)
 
             if frame.vad:
+                self._received_audio_since_activation = True
                 self._silence_duration = 0.0
             else:
                 self._silence_duration += self._audio.frame_ms / 1000
+                guard_active = (
+                    not self._received_audio_since_activation or now_ts < self._listening_guard_until
+                )
+                if guard_active:
+                    continue
                 if self._silence_duration >= self._silence_timeout:
                     self._logger.info("listen.silence_timeout", duration=self._silence_duration)
-                    self._listening_active = False
+                    self._stop_listening()
                     await transcriber.enqueue_audio(b"", time.time(), False, force=True)
-                    self._silence_duration = 0.0
 
     async def _transcription_loop(self, transcriber: TranscriptionEngine, engine_name: str) -> None:
         current_text = ""
@@ -599,6 +731,7 @@ class Runtime:
                 await self._handle_final_transcript(transcript, engine_name)
         except Exception as exc:
             self._logger.error("transcription.loop.error", engine=engine_name, error=str(exc))
+            await self._soundfx.play("small_error", await_completion=False)
             if self._transcriber is transcriber and not engine_name.startswith("vosk"):
                 await self._swap_transcriber("vosk-en-in")
         finally:
@@ -609,12 +742,22 @@ class Runtime:
     async def _run_wakeword_loop(self) -> None:
         assert self._wakeword is not None
         async for hit in self._wakeword.run():
+            self._refresh_manual_flag()
             if self._manual_active:
                 self._logger.info("wakeword.ignored", keyword=hit.keyword, reason="manual_active")
                 continue
+            if self._sleeping:
+                self._sleeping = False
+                await self._soundfx.play("boot_sequence", await_completion=False)
+            current_tag = self._audio_output.current_tag()
+            if current_tag and current_tag.startswith("tts:"):
+                await self._audio_output.stop(current_tag)
+                await self._soundfx.play("interruption", await_completion=False)
+            await self._soundfx.play("wakeword", await_completion=False)
             self._wake_hit = hit
             self._manual_active = False
-            self._listening_active = True
+            self._manual_active_deadline = 0.0
+            self._begin_listening(hit.keyword)
             await self._ensure_transcriber_ready()
             self._logger.info("wakeword.detected", keyword=hit.keyword, confidence=hit.confidence)
             await ui_bridge.publish_state("HOTWORD_HEARD", {"keyword": hit.keyword, "confidence": hit.confidence})
@@ -638,8 +781,9 @@ class Runtime:
             return
         self._wake_hit = WakeWordHit(ts=time.time(), keyword="manual", confidence=1.0, buffer_ref_ms=4000)
         self._manual_active = True
-        self._listening_active = True
-        self._silence_duration = 0.0
+        self._manual_active_deadline = time.time() + 15.0
+        self._sleeping = False
+        self._begin_listening("manual")
         self._logger.info("manual.start")
         await self._ensure_transcriber_ready()
         await ui_bridge.publish_state("HOTWORD_HEARD", {"keyword": "manual", "confidence": 1.0})
@@ -665,8 +809,8 @@ class Runtime:
         if transcriber:
             await transcriber.enqueue_audio(b"", time.time(), False, force=True)
         self._manual_active = False
-        self._listening_active = False
-        self._silence_duration = 0.0
+        self._manual_active_deadline = 0.0
+        self._stop_listening()
         self._wake_hit = None
         self._logger.info("manual.stop")
         await ui_bridge.publish_state("IDLE", {"keyword": "manual", "audio_level": 0.0})
@@ -674,35 +818,79 @@ class Runtime:
     async def toggle_asr_language(self) -> str:
         current = self._transcriber_name or ""
         target = "vosk-hi" if not current.startswith("vosk-hi") else "vosk-en-in"
+        self._transcriber_lock = target
         await self._swap_transcriber(target)
         await self._persona.set_language(
             self._persona_language_target(self._language_hint(self._transcriber_name))
         )
         return self._transcriber_name or target
 
+    def transcriber_options(self) -> list[str]:
+        return ["auto"] + self._transcriber_options
+
+    def current_transcriber(self) -> str:
+        return self._transcriber_lock or (self._transcriber_name or "")
+
+    def transcriber_selection(self) -> str:
+        return self._transcriber_lock or "auto"
+
+    async def set_transcriber(self, engine: str) -> str:
+        if engine == "auto":
+            self._transcriber_lock = None
+            self._logger.info("transcription.engine.lock.cleared")
+            return self._transcriber_name or ""
+        if engine not in self._transcriber_options:
+            raise ValueError(f"Unknown transcription engine '{engine}'")
+        self._transcriber_lock = engine
+        await self._swap_transcriber(engine)
+        return self._transcriber_name
+
+    async def sound_effects_snapshot(self) -> list[dict[str, Any]]:
+        return await self._soundfx.snapshot()
+
+    async def select_sound_effect(self, event: str, filename: str) -> None:
+        await self._soundfx.select(event, filename)
+
+    async def add_sound_effect(self, event: str, original_name: str, data: bytes) -> str:
+        return await self._soundfx.add(event, original_name, data)
+
+    async def set_sleep_mode(self, enabled: bool) -> bool:
+        if enabled == self._sleeping:
+            return self._sleeping
+        self._sleeping = enabled
+        if enabled:
+            self._manual_active = False
+            self._manual_active_deadline = 0.0
+            self._stop_listening()
+            await self._soundfx.play("sleep_mode", await_completion=False)
+        return self._sleeping
+
+    def sleep_mode(self) -> bool:
+        return self._sleeping
+
     async def _handle_final_transcript(self, transcript: str, engine_name: str) -> None:
         transcript = (transcript or "").strip()
         if not transcript:
             self._logger.info("transcription.empty_final", engine=engine_name)
             self._wake_hit = None
-            self._listening_active = False
             self._manual_active = False
-            self._silence_duration = 0.0
+            self._manual_active_deadline = 0.0
+            self._stop_listening()
             self._last_language = None
             return
 
         if await self._handle_persona_command(transcript):
             self._wake_hit = None
             self._manual_active = False
-            self._listening_active = False
-            self._silence_duration = 0.0
+            self._manual_active_deadline = 0.0
+            self._stop_listening()
             return
 
         if await self._handle_voice_change_agent(transcript):
             self._wake_hit = None
             self._manual_active = False
-            self._listening_active = False
-            self._silence_duration = 0.0
+            self._manual_active_deadline = 0.0
+            self._stop_listening()
             return
 
         wake_hit = self._wake_hit
@@ -714,9 +902,9 @@ class Runtime:
             await ui_bridge.publish_state("MAINTENANCE", {"prompt": "Shutting down..."})
             self._shutdown_in_progress = True
             self._manual_active = False
-            self._listening_active = False
+            self._manual_active_deadline = 0.0
             self._wake_hit = None
-            self._silence_duration = 0.0
+            self._stop_listening()
             asyncio.create_task(self._perform_exit())
             return
 
@@ -743,8 +931,8 @@ class Runtime:
 
         self._wake_hit = None
         self._manual_active = False
-        self._listening_active = False
-        self._silence_duration = 0.0
+        self._manual_active_deadline = 0.0
+        self._stop_listening()
         await self._maybe_switch_engine(transcript, engine_name)
         lang_hint = self._last_language or self._language_hint(self._transcriber_name)
         if lang_hint == "--":
@@ -753,6 +941,8 @@ class Runtime:
         await self._persona.set_language(self._persona_language_target(lang_hint))
 
     async def _maybe_switch_engine(self, transcript: str, engine_name: str) -> None:
+        if self._transcriber_lock:
+            return
         target = self._target_engine_for_transcript(transcript, engine_name)
         if not target:
             return
@@ -833,6 +1023,7 @@ class Runtime:
                 new_name, new_transcriber = self._transcriber_builder(target_engine)
             except Exception as exc:  # pragma: no cover - defensive logging
                 self._logger.error("transcription.engine.switch.failed", target=target_engine, error=str(exc))
+                await self._soundfx.play("small_error", await_completion=False)
                 return
 
             old_transcriber = self._transcriber
@@ -917,6 +1108,7 @@ class Runtime:
         return True
 
     async def _perform_exit(self) -> None:
+        await self._soundfx.play("exit", await_completion=True)
         await asyncio.sleep(0.2)
         try:
             await self.shutdown()
@@ -929,14 +1121,23 @@ class Runtime:
         return {"text": message.text}
 
 
-def build_transcriber(settings: AppSettings, preferred: str | None = None) -> tuple[str, TranscriptionEngine]:
-    vosk_models: dict[str, str] = {}
+def collect_transcriber_models(settings: AppSettings) -> dict[str, str]:
+    models: dict[str, str] = {}
     if settings.transcription.vosk_model_path_en_in:
-        vosk_models["vosk-en-in"] = settings.transcription.vosk_model_path_en_in
+        models["vosk-en-in"] = settings.transcription.vosk_model_path_en_in
     if settings.transcription.vosk_model_path:
-        vosk_models.setdefault("vosk-en-in", settings.transcription.vosk_model_path)
+        models.setdefault("vosk-en-in", settings.transcription.vosk_model_path)
     if settings.transcription.vosk_model_path_hi:
-        vosk_models["vosk-hi"] = settings.transcription.vosk_model_path_hi
+        models["vosk-hi"] = settings.transcription.vosk_model_path_hi
+    return models
+
+
+def build_transcriber(
+    settings: AppSettings,
+    preferred: str | None = None,
+    available: dict[str, str] | None = None,
+) -> tuple[str, TranscriptionEngine]:
+    vosk_models = dict(available or collect_transcriber_models(settings))
 
     def normalize(engine: str | None) -> str:
         # Force Vosk-only usage; map empty/cheetah to Vosk default if available
@@ -991,11 +1192,19 @@ def build_transcriber(settings: AppSettings, preferred: str | None = None) -> tu
 
 
 async def bootstrap_runtime() -> Runtime:
+    audio_output = AudioOutputController()
+    sound_effects = SoundEffectManager(
+        base_dir=project_root() / "Voice system" / "sound effects",
+        audio_output=audio_output,
+        config_path=project_root() / "Voice system" / "config" / "sound_effects.yml",
+    )
+    await sound_effects.initialize()
     try:
         memory: MemoryStore | NullMemoryStore = MemoryStore(settings.database.dsn, settings.database.max_pool_size)
         await memory.init()
     except Exception as exc:
         logger.error("memory.init.failed", error=str(exc))
+        await sound_effects.play("big_error", await_completion=False)
         memory = NullMemoryStore()
         await memory.init()
 
@@ -1004,7 +1213,13 @@ async def bootstrap_runtime() -> Runtime:
     router = Router(ollama=ollama, gemini=gemini)
 
     voice_router = load_router()
-    kokoro = KokoroTTSClient(settings.kokoro.base_url, settings.kokoro.api_key, {}, router=voice_router)
+    kokoro = KokoroTTSClient(
+        settings.kokoro.base_url,
+        settings.kokoro.api_key,
+        {},
+        router=voice_router,
+        audio_output=audio_output,
+    )
 
     persona_manager = PersonaManager(kokoro)
     await persona_manager.initialize()
@@ -1026,10 +1241,11 @@ async def bootstrap_runtime() -> Runtime:
     )
     audio.start()
 
-    engine_name, transcriber = build_transcriber(settings)
+    vosk_models = collect_transcriber_models(settings)
+    engine_name, transcriber = build_transcriber(settings, available=vosk_models)
 
     def transcriber_builder(preferred: str | None = None) -> tuple[str, TranscriptionEngine]:
-        return build_transcriber(settings, preferred)
+        return build_transcriber(settings, preferred, vosk_models)
 
     wakeword_engine: WakeWordEngine | None = None
     if settings.wakeword.engine == "porcupine" and settings.wakeword.porcupine_keyword_path:
@@ -1049,9 +1265,12 @@ async def bootstrap_runtime() -> Runtime:
         router,
         memory,
         audio,
+        audio_output,
+        sound_effects,
         transcriber,
         engine_name,
         transcriber_builder,
+        list(vosk_models.keys()),
         persona_manager,
         wakeword_engine,
         scheduler,

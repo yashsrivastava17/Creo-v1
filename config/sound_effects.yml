@@ -1,0 +1,15 @@
+events:
+  big_error:
+    selected: Big_Error.wav
+  boot_sequence:
+    selected: Bootsequence_alt.wav
+  exit:
+    selected: 'shutdown #1.wav'
+  interruption:
+    selected: speechinterruption.wav
+  sleep_mode:
+    selected: Sleep mode.wav
+  small_error:
+    selected: small_error.wav
+  wakeword:
+    selected: wakeword.wav
