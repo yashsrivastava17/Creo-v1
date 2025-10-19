@@ -141,30 +141,6 @@ async def toggle_asr_language() -> dict[str, str]:
     return {"status": "runtime-unavailable"}
 
 
-@app.get("/asr/options")
-async def list_asr_options() -> dict[str, Any]:
-    runtime = getattr(app.state, "runtime", None)
-    if runtime is None:
-        return {"engines": [], "current": "", "selected": "auto"}
-    return {
-        "engines": runtime.transcriber_options(),
-        "current": runtime.current_transcriber(),
-        "selected": runtime.transcriber_selection(),
-    }
-
-
-@app.post("/asr/select")
-async def select_asr_engine(req: "ASRSelectRequest") -> dict[str, str]:
-    runtime = getattr(app.state, "runtime", None)
-    if runtime is None:
-        raise HTTPException(status_code=503, detail="runtime unavailable")
-    try:
-        engine = await runtime.set_transcriber(req.engine)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return {"engine": engine, "selected": runtime.transcriber_selection()}
-
-
 class ChatRequest(BaseModel):
     text: str
 
@@ -209,6 +185,30 @@ class CameraEventRequest(BaseModel):
 
 class LLMProviderRequest(BaseModel):
     provider: str
+
+
+@app.get("/asr/options")
+async def list_asr_options() -> dict[str, Any]:
+    runtime = getattr(app.state, "runtime", None)
+    if runtime is None:
+        return {"engines": [], "current": "", "selected": "auto"}
+    return {
+        "engines": runtime.transcriber_options(),
+        "current": runtime.current_transcriber(),
+        "selected": runtime.transcriber_selection(),
+    }
+
+
+@app.post("/asr/select")
+async def select_asr_engine(req: ASRSelectRequest) -> dict[str, str]:
+    runtime = getattr(app.state, "runtime", None)
+    if runtime is None:
+        raise HTTPException(status_code=503, detail="runtime unavailable")
+    try:
+        engine = await runtime.set_transcriber(req.engine)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"engine": engine, "selected": runtime.transcriber_selection()}
 
 
 @app.get("/persona/list")
