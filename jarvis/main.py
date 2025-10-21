@@ -36,6 +36,7 @@ from jarvis.lang.script_detect import detect_lang_from_text
 from jarvis.memory.store import MemoryStore, NullMemoryStore
 from jarvis.orchestrator.events import WakeWordHit
 from jarvis.persona import PersonaManager
+from jarvis.orchestrator.policies import CostBudget, RouterPolicies
 from jarvis.orchestrator.state_machine import Orchestrator
 from jarvis.orchestrator.maintenance import SelfMaintenanceScheduler
 from jarvis.telemetry.logging import configure_logging, get_logger
@@ -45,6 +46,10 @@ from jarvis.transcription import VoskStream
 from jarvis.transcription.base import TranscriptionEngine
 from jarvis.tts.kokoro import KokoroTTSClient
 from jarvis.tts.voice_router import VoiceRouter, load_router
+from jarvis.tools.ingest import register_ingest_tools
+from jarvis.tools.registry import RegistryToolExecutor, ToolContext, ToolRegistry
+from jarvis.tools.retrieve import register_retrieval_tools
+from jarvis.tools.taskgraph import register_taskgraph_tools
 from jarvis.ui.websocket import FloatingUIBridge
 
 
@@ -1208,9 +1213,22 @@ async def bootstrap_runtime() -> Runtime:
         memory = NullMemoryStore()
         await memory.init()
 
+    tool_registry = ToolRegistry()
+    register_retrieval_tools(tool_registry)
+    register_ingest_tools(tool_registry)
+    register_taskgraph_tools(tool_registry)
+    logger.info("tool.registry.ready", tools=tool_registry.available())
+
+    def tool_context_factory() -> ToolContext:
+        return ToolContext(memory=memory)
+
+    tool_executor = RegistryToolExecutor(tool_registry, tool_context_factory)
+
     ollama = OllamaProvider(settings.llm.ollama_host)
     gemini = GeminiProvider(settings.llm.gemini_api_key) if settings.llm.gemini_api_key else None
-    router = Router(ollama=ollama, gemini=gemini)
+    cost_budget = CostBudget(daily_cap_usd=settings.llm.max_gemini_daily_usd)
+    router_policies = RouterPolicies(cost_budget=cost_budget)
+    router = Router(ollama=ollama, gemini=gemini, policies=router_policies)
 
     voice_router = load_router()
     kokoro = KokoroTTSClient(
@@ -1229,7 +1247,7 @@ async def bootstrap_runtime() -> Runtime:
         router=router,
         tts=kokoro,
         persona=persona_manager,
-        tool_executor=ToolExecutorStub(),
+        tool_executor=tool_executor,
         ui_bridge=ui_bridge,
     )
 
@@ -1280,9 +1298,3 @@ async def bootstrap_runtime() -> Runtime:
     await runtime.start()
     logger.info("runtime.started")
     return runtime
-
-
-class ToolExecutorStub:
-    async def invoke(self, call: dict) -> dict:
-        logger.info("tool.stub.invoke", call=call)
-        return {"tool": call.get("tool"), "result": "stub"}

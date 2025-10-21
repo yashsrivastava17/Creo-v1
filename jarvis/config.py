@@ -49,6 +49,7 @@ class WakeWordSettings(BaseModel):
 class LLMSettings(BaseModel):
     ollama_host: str = "http://localhost:11434"
     gemini_api_key: str | None = None
+    max_gemini_daily_usd: float | None = None
 
 
 class TelemetrySettings(BaseModel):
@@ -89,6 +90,7 @@ class AppSettings(BaseSettings):
     PORCUPINE_ACCESS_KEY: str | None = None
     OLLAMA_HOST: str = "http://localhost:11434"
     GEMINI_API_KEY: str | None = None
+    MAX_GEMINI_DAILY_USD: float | None = None
     LOG_LEVEL: str = "INFO"
     OTEL_EXPORTER_OTLP_ENDPOINT: str | None = None
     RESOURCE_SAMPLE_SECONDS: int = 30
@@ -141,7 +143,11 @@ class AppSettings(BaseSettings):
 
     @property
     def llm(self) -> LLMSettings:
-        return LLMSettings(ollama_host=self.OLLAMA_HOST, gemini_api_key=self.GEMINI_API_KEY)
+        return LLMSettings(
+            ollama_host=self.OLLAMA_HOST,
+            gemini_api_key=self.GEMINI_API_KEY,
+            max_gemini_daily_usd=self.MAX_GEMINI_DAILY_USD,
+        )
 
     @property
     def telemetry(self) -> TelemetrySettings:

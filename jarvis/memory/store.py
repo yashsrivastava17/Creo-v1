@@ -56,6 +56,48 @@ class MemoryStore:
                 session.add(fact)
             await session.commit()
 
+    async def search(self, query: str, limit: int = 5, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        filters = filters or {}
+        lens_filter = filters.get("lens")
+        async with self._session_factory() as session:
+            stmt = (
+                select(models.MemoryFact)
+                .where(models.MemoryFact.user_id == 1)
+                .order_by(models.MemoryFact.created_at.desc())
+                .limit(limit * 6)
+            )
+            if lens_filter:
+                stmt = stmt.where(models.MemoryFact.content["lens"].astext == lens_filter)
+            rows = (await session.execute(stmt)).scalars().all()
+
+        query_lower = query.lower()
+        hits: list[dict[str, Any]] = []
+        for row in rows:
+            content = row.content
+            if isinstance(content, dict):
+                text = content.get("text") or content.get("summary") or str(content)
+                lens = content.get("lens")
+            else:
+                text = str(content)
+                lens = None
+            score = 0.1
+            if query_lower:
+                score += sum(1 for token in query_lower.split() if token in text.lower())
+            snippet = text[:400]
+            if len(text) > 400:
+                snippet = snippet.rsplit(" ", 1)[0] + "..."
+            hits.append(
+                {
+                    "doc_id": f"memory:{row.id}",
+                    "span": [0, len(snippet)],
+                    "score": round(score, 2),
+                    "lens": lens,
+                    "snippet": snippet,
+                    "timestamp": row.created_at.isoformat() if row.created_at else None,
+                }
+            )
+        return hits[:limit]
+
 
 class NullMemoryStore:
     def __init__(self) -> None:
@@ -73,3 +115,6 @@ class NullMemoryStore:
     async def write(self, writes: Sequence[dict]) -> None:
         if writes:
             self._logger.warning("memory.null.write_ignored", writes=len(writes))
+
+    async def search(self, query: str, limit: int = 5, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        return []

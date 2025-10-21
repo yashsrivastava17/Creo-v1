@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import AsyncExitStack
-from typing import Awaitable, Callable, Protocol
+from typing import Any, Awaitable, Callable, Protocol
 from uuid import uuid4
 
 from jarvis.llm.types import RoutingPlan
@@ -89,14 +89,26 @@ class Orchestrator:
             )
 
             await self._publish_agent_step("router_decide", "running")
-            plan = await self._router.decide(user_turn.prompt_text, user_turn.context)
-            await self._publish_agent_step("router_decide", "complete", provider=plan.provider.name)
-            await self._ui.publish_state("COMPOSING", {"turn_id": turn_id, "plan": plan.to_dict()})
+            routing_plan = await self._router.decide(user_turn.prompt_text, user_turn.context)
+            await self._publish_agent_step("router_decide", "complete", provider=routing_plan.provider.name)
+            await self._ui.publish_state(
+                "COMPOSING",
+                {"turn_id": turn_id, "plan": routing_plan.to_dict()},
+            )
+
+            plan_results = await self._execute_plan_steps(routing_plan, user_turn)
+            if plan_results:
+                await self._ui.publish_state(
+                    "COMPOSING",
+                    {"turn_id": turn_id, "plan_results": plan_results},
+                )
 
             async with AsyncExitStack() as stack:
-                await self._publish_agent_step("llm_generate", "running", provider=plan.provider.name)
-                resp = await plan.provider.chat(plan.prompt, tools=plan.tools)
-                await self._publish_agent_step("llm_generate", "complete", provider=plan.provider.name)
+                await self._publish_agent_step("llm_generate", "running", provider=routing_plan.provider.name)
+                composed_prompt = routing_plan.compose_prompt(plan_results)
+                resp = await routing_plan.provider.chat(composed_prompt, tools=routing_plan.tools)
+                self._router.register_cost(routing_plan.provider.name)
+                await self._publish_agent_step("llm_generate", "complete", provider=routing_plan.provider.name)
 
                 tool_results: list[dict] = []
                 for call in resp.tool_calls:
@@ -105,10 +117,11 @@ class Orchestrator:
                     await self._publish_agent_step("tool_call", "complete", detail={"tool": call.get("tool")})
 
                 if tool_results:
-                    followup_prompt = plan.followup_prompt(tool_results)
-                    await self._publish_agent_step("llm_followup", "running", provider=plan.provider.name)
-                    resp = await plan.provider.chat(followup_prompt, tools=plan.tools)
-                    await self._publish_agent_step("llm_followup", "complete", provider=plan.provider.name)
+                    followup_prompt = routing_plan.followup_prompt(tool_results)
+                    await self._publish_agent_step("llm_followup", "running", provider=routing_plan.provider.name)
+                    resp = await routing_plan.provider.chat(followup_prompt, tools=routing_plan.tools)
+                    self._router.register_cost(routing_plan.provider.name)
+                    await self._publish_agent_step("llm_followup", "complete", provider=routing_plan.provider.name)
 
                 gated = await self._memory.guard(resp.memory_writes)
             if gated:
@@ -151,16 +164,30 @@ class Orchestrator:
             await self._publish_agent_step("context", "complete")
 
             await self._publish_agent_step("router_decide", "running")
-            plan = await self._router.decide(transcript, context)
-            await self._publish_agent_step("router_decide", "complete", provider=plan.provider.name)
+            routing_plan = await self._router.decide(transcript, context)
+            await self._publish_agent_step("router_decide", "complete", provider=routing_plan.provider.name)
             await self._ui.publish_state(
                 "COMPOSING",
-                {"turn_id": turn_id, "plan": plan.to_dict(), "transcript": transcript, "persona": persona_profile},
+                {
+                    "turn_id": turn_id,
+                    "plan": routing_plan.to_dict(),
+                    "transcript": transcript,
+                    "persona": persona_profile,
+                },
             )
 
-            await self._publish_agent_step("llm_generate", "running", provider=plan.provider.name)
-            resp = await plan.provider.chat(plan.prompt, tools=plan.tools)
-            await self._publish_agent_step("llm_generate", "complete", provider=plan.provider.name)
+            plan_results = await self._execute_plan_steps(routing_plan, None)
+            if plan_results:
+                await self._ui.publish_state(
+                    "COMPOSING",
+                    {"turn_id": turn_id, "plan_results": plan_results, "transcript": transcript},
+                )
+
+            await self._publish_agent_step("llm_generate", "running", provider=routing_plan.provider.name)
+            composed_prompt = routing_plan.compose_prompt(plan_results)
+            resp = await routing_plan.provider.chat(composed_prompt, tools=routing_plan.tools)
+            self._router.register_cost(routing_plan.provider.name)
+            await self._publish_agent_step("llm_generate", "complete", provider=routing_plan.provider.name)
 
             tool_results: list[dict] = []
             for call in resp.tool_calls:
@@ -169,10 +196,11 @@ class Orchestrator:
                 await self._publish_agent_step("tool_call", "complete", detail={"tool": call.get("tool")})
 
             if tool_results:
-                followup_prompt = plan.followup_prompt(tool_results)
-                await self._publish_agent_step("llm_followup", "running", provider=plan.provider.name)
-                resp = await plan.provider.chat(followup_prompt, tools=plan.tools)
-                await self._publish_agent_step("llm_followup", "complete", provider=plan.provider.name)
+                followup_prompt = routing_plan.followup_prompt(tool_results)
+                await self._publish_agent_step("llm_followup", "running", provider=routing_plan.provider.name)
+                resp = await routing_plan.provider.chat(followup_prompt, tools=routing_plan.tools)
+                self._router.register_cost(routing_plan.provider.name)
+                await self._publish_agent_step("llm_followup", "complete", provider=routing_plan.provider.name)
 
             gated = await self._memory.guard(resp.memory_writes)
             if gated:
@@ -227,6 +255,29 @@ class Orchestrator:
         if detail:
             payload.update(detail)
         await self._ui.publish_state("LLM_AGENT", payload)
+
+    async def _execute_plan_steps(self, plan: RoutingPlan, user_turn: UserTurn | None) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        for step in plan.plan.steps:
+            if step.use == "respond":
+                continue
+            detail = {"tool": step.use}
+            await self._publish_agent_step("plan_step", "running", detail=detail)
+            call_payload = {
+                "tool": step.use,
+                "args": step.args,
+                "origin": "plan",
+                "turn_id": user_turn.turn_id if user_turn else None,
+            }
+            try:
+                result = await self._tool_executor.invoke(call_payload)
+                results.append({"tool": step.use, "args": step.args, "result": result})
+                await self._publish_agent_step("plan_step", "complete", detail=detail)
+            except Exception as exc:  # pragma: no cover - surface to logging/telemetry
+                self._logger.error("plan.step.failed", tool=step.use, error=str(exc))
+                results.append({"tool": step.use, "args": step.args, "error": str(exc)})
+                await self._publish_agent_step("plan_step", "error", detail=detail | {"error": str(exc)})
+        return results
 
 
 __all__ = ["Orchestrator"]
