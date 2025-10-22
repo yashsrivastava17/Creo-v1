@@ -45,7 +45,7 @@ personas:
       alt2:
         hi:
           params:
-            hf_alpha: -1.2
+            hf_alpha: 1.2
             af_aoede: 0.7
           voice: "hf_alpha"
         en:
@@ -58,12 +58,11 @@ personas:
           voice: "pf_dora"
       anime:
         any:
-          voice: "jf_alpha"
+          voice: "jf_tebukuro"
 
 routing:
   camera_events:
     see_blackie:
       persona: female
       variant: anime
-      voice_override: "jf_alpha"
       line: "blackieee"

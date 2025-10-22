@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from contextlib import AsyncExitStack
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Protocol
 from uuid import uuid4
 
 from jarvis.llm.types import RoutingPlan
+from jarvis.tools import reminders as reminder_tools
 from jarvis.orchestrator.events import AssistantMessage, State, UserTurn, WakeWordHit
 from jarvis.persona import PersonaManager
 from jarvis.telemetry.logging import get_logger
@@ -55,6 +58,7 @@ class Orchestrator:
         self._state: State = "IDLE"
         self._turn_lock = asyncio.Lock()
         self._agent_counter = 0
+        self._last_plan: dict[str, Any] | None = None
 
     @property
     def state(self) -> State:
@@ -79,6 +83,11 @@ class Orchestrator:
             await self._publish_agent_step("context", "running")
             context = await context_factory()
             await self._publish_agent_step("context", "complete")
+            intent_result = await self._maybe_handle_intent(transcript, turn_id, persona_profile)
+            if intent_result is not None:
+                duration, _ = intent_result
+                await self.set_state("IDLE", {"turn_id": turn_id})
+                return duration
             user_turn = UserTurn(
                 turn_id=turn_id,
                 wake_word_ts=wake_hit.ts,
@@ -162,6 +171,17 @@ class Orchestrator:
             await self._publish_agent_step("context", "running")
             context = await context_factory()
             await self._publish_agent_step("context", "complete")
+            intent_result = await self._maybe_handle_intent(transcript, turn_id, persona_profile)
+            if intent_result is not None:
+                duration, text = intent_result
+                await self._ui.publish_state("IDLE", {"turn_id": turn_id})
+                return AssistantMessage(
+                    turn_id=turn_id,
+                    text=text,
+                    citations=[],
+                    memory_writes=[],
+                    tts_duration=duration,
+                )
 
             await self._publish_agent_step("router_decide", "running")
             routing_plan = await self._router.decide(transcript, context)
@@ -255,6 +275,263 @@ class Orchestrator:
         if detail:
             payload.update(detail)
         await self._ui.publish_state("LLM_AGENT", payload)
+
+    async def _invoke_tool(self, name: str, args: dict[str, Any], origin: str = "intent") -> dict[str, Any]:
+        call = {"tool": name, "args": args, "origin": origin}
+        return await self._tool_executor.invoke(call)
+
+    def cache_plan(self, plan: dict[str, Any]) -> None:
+        self._last_plan = plan
+
+    async def _maybe_handle_intent(
+        self,
+        transcript: str,
+        turn_id: str,
+        persona_profile: dict[str, Any],
+    ) -> tuple[float, str] | None:
+        intent = self._match_intent(transcript)
+        if intent is None:
+            return None
+        await self._publish_agent_step("intent", "running", detail={"intent": intent["name"]})
+        response_text = ""
+        try:
+            if intent["name"] == "plan_day":
+                await self._invoke_tool("tasks.sync_from_apple", {"list_names": None})
+                today = datetime.now(timezone.utc).date().isoformat()
+                plan = await self._invoke_tool(
+                    "planner.plan_day",
+                    {"date": today, "mode": intent.get("mode")},
+                )
+                self._last_plan = plan
+                await self._ui.publish_state("PLANNER", plan)
+                response_text = f"I've drafted your {intent.get('mode', 'balanced')} plan for today."
+            elif intent["name"] == "whats_next":
+                plan = self._last_plan
+                if plan is None:
+                    today = datetime.now(timezone.utc).date().isoformat()
+                    plan = await self._invoke_tool("planner.plan_day", {"date": today})
+                    self._last_plan = plan
+                next_block = self._next_block(plan)
+                if next_block:
+                    response_text = f"Next up at {next_block['start_time']} is {next_block['label']}."
+                else:
+                    response_text = "No upcoming blocks on your schedule."
+            elif intent["name"] == "remind_at":
+                when = intent["when"]
+                title = intent.get("title", "Reminder")
+                await self._invoke_tool(
+                    "reminders.add",
+                    {"when": when, "title": title, "payload": {}, "channel": "local"},
+                )
+                response_text = f"Reminder set for {when.strftime('%I:%M %p').lstrip('0')} to {title}."
+            elif intent["name"] == "remind_in":
+                when = datetime.now(timezone.utc) + intent["delta"]
+                title = intent.get("title", "Reminder")
+                await self._invoke_tool(
+                    "reminders.add",
+                    {"when": when, "title": title, "payload": {}, "channel": "local"},
+                )
+                minutes = int(intent["delta"].total_seconds() // 60)
+                response_text = f"Okay, I'll remind you in {minutes} minutes."
+            elif intent["name"] == "router_mode":
+                state = await self._invoke_tool("router.set_mode", {"smart": intent["smart"]})
+                provider = state.get("provider", "your default model")
+                response_text = f"Routing future calls through {provider}."
+            elif intent["name"] == "prep_event":
+                plan = self._last_plan
+                if plan is None:
+                    today = datetime.now(timezone.utc).date().isoformat()
+                    plan = await self._invoke_tool("planner.plan_day", {"date": today})
+                    self._last_plan = plan
+                target = self._find_event_by_time(plan, intent["hour"], intent["minute"])
+                if target:
+                    prep_time = target["start"] - timedelta(minutes=15)
+                    await self._invoke_tool(
+                        "reminders.add",
+                        {
+                            "when": prep_time,
+                            "title": f"Prep for {target['label']}",
+                            "payload": {"event_id": target["event_id"]},
+                        },
+                    )
+                    response_text = f"I'll remind you fifteen minutes before {target['label']}."
+                else:
+                    response_text = "I couldn't find that meeting on your plan yet."
+            elif intent["name"] == "start_notes":
+                event = self._current_event_from_plan()
+                if event is None:
+                    response_text = "I don't see an active meeting to start notes for."
+                else:
+                    await self._invoke_tool("meeting.start_notes", {"event_id": event["event_id"]})
+                    response_text = f"Starting notes for {event['label']}."
+            elif intent["name"] == "snooze_reminder":
+                reminder = self._next_reminder()
+                if reminder is None:
+                    response_text = "There's no reminder to snooze."
+                else:
+                    reminder_tools.SCHEDULER.cancel(reminder["id"])
+                    new_time = datetime.fromisoformat(reminder["when"]) + intent["delta"]
+                    reminder_tools.SCHEDULER.add(
+                        when_iso=new_time.isoformat(),
+                        title=reminder.get("title", "Reminder"),
+                        payload=reminder.get("payload", {}),
+                        channel=reminder.get("channel", "local"),
+                    )
+                    response_text = f"Snoozed for {int(intent['delta'].total_seconds() // 60)} minutes."
+            else:
+                response_text = ""
+            await self._publish_agent_step("intent", "complete", detail={"intent": intent["name"]})
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            self._logger.error("intent.handler.failed", intent=intent["name"], error=str(exc))
+            await self._publish_agent_step("intent", "error", detail={"error": str(exc)})
+            response_text = "Sorry, that action failed."
+
+        if not response_text:
+            return None
+
+        await self.set_state(
+            "SPEAKING",
+            {
+                "turn_id": turn_id,
+                "text": response_text,
+                "persona": persona_profile,
+                "tts_status": "starting",
+            },
+        )
+        duration = await self._tts.speak(turn_id, response_text)
+        await self._ui.publish_state(
+            "SPEAKING",
+            {
+                "turn_id": turn_id,
+                "text": response_text,
+                "persona": persona_profile,
+                "tts_status": "complete",
+                "tts_duration": duration,
+            },
+        )
+        return duration, response_text
+
+    def _match_intent(self, transcript: str) -> dict[str, Any] | None:
+        text = transcript.strip().lower().replace("’", "'")
+        if not text:
+            return None
+        if "plan my day" in text:
+            mode = "balanced"
+            if "deep" in text:
+                mode = "deep"
+            elif "speed" in text:
+                mode = "speed"
+            return {"name": "plan_day", "mode": mode}
+        if "what's next" in text or "whats next" in text:
+            return {"name": "whats_next"}
+        if "be smarter" in text:
+            return {"name": "router_mode", "smart": True}
+        if "be lighter" in text:
+            return {"name": "router_mode", "smart": False}
+        match = re.search(r"prep me for (?:the )?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<suffix>am|pm)?", text)
+        if match:
+            hour = int(match.group("hour"))
+            minute = int(match.group("minute") or 0)
+            suffix = match.group("suffix")
+            hour = self._to_24_hour(hour, suffix)
+            return {"name": "prep_event", "hour": hour, "minute": minute}
+        if "start notes for this meeting" in text or text.startswith("i'm entering a meeting") or text.startswith("im entering a meeting"):
+            return {"name": "start_notes"}
+        match = re.search(r"snooze (?:the )?next reminder (?P<amount>\d+)\s*(?P<unit>minutes?|minute|hours?|hour)", text)
+        if match:
+            amount = int(match.group("amount"))
+            unit = match.group("unit")
+            delta = timedelta(minutes=amount) if "hour" not in unit else timedelta(hours=amount)
+            return {"name": "snooze_reminder", "delta": delta}
+        match = re.search(
+            r"remind me at (?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?\s*(?P<suffix>am|pm)?\s*(?:to)?\s*(?P<what>.+)",
+            text,
+        )
+        if match:
+            hour = self._to_24_hour(int(match.group("hour")), match.group("suffix"))
+            minute = int(match.group("minute") or 0)
+            title = match.group("what").strip()
+            when = datetime.now(timezone.utc).replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if when <= datetime.now(timezone.utc):
+                when += timedelta(days=1)
+            return {"name": "remind_at", "when": when, "title": title}
+        match = re.search(
+            r"remind me in (?P<amount>\d+)\s*(?P<unit>minutes?|minute|hours?|hour)\s*(?:to)?\s*(?P<what>.+)",
+            text,
+        )
+        if match:
+            amount = int(match.group("amount"))
+            unit = match.group("unit")
+            delta = timedelta(minutes=amount) if "hour" not in unit else timedelta(hours=amount)
+            title = match.group("what").strip()
+            return {"name": "remind_in", "delta": delta, "title": title}
+        return None
+
+    @staticmethod
+    def _to_24_hour(hour: int, suffix: str | None) -> int:
+        if suffix is None:
+            return hour % 24
+        suffix = suffix.lower()
+        if suffix == "pm" and hour != 12:
+            return hour + 12
+        if suffix == "am" and hour == 12:
+            return 0
+        return hour
+
+    @staticmethod
+    def _parse_dt(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        dt = datetime.fromisoformat(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    def _next_block(self, plan: dict[str, Any]) -> dict[str, str] | None:
+        now = datetime.now(timezone.utc)
+        for block in plan.get("blocks", []):
+            start = self._parse_dt(block.get("start"))
+            if start and start >= now:
+                return {
+                    "label": block.get("label", ""),
+                    "start_time": start.strftime("%I:%M %p").lstrip("0"),
+                }
+        return None
+
+    def _find_event_by_time(self, plan: dict[str, Any], hour: int, minute: int) -> dict[str, Any] | None:
+        for block in plan.get("blocks", []):
+            if block.get("type") != "event":
+                continue
+            start = self._parse_dt(block.get("start"))
+            if start and start.hour == hour and start.minute == minute:
+                return {
+                    "label": block.get("label", "meeting"),
+                    "start": start,
+                    "event_id": block.get("meta", {}).get("id"),
+                }
+        return None
+
+    def _current_event_from_plan(self) -> dict[str, Any] | None:
+        if self._last_plan is None:
+            return None
+        now = datetime.now(timezone.utc)
+        for block in self._last_plan.get("blocks", []):
+            if block.get("type") != "event":
+                continue
+            start = self._parse_dt(block.get("start"))
+            end = self._parse_dt(block.get("end"))
+            if start and end and start <= now <= end:
+                return {
+                    "label": block.get("label", "meeting"),
+                    "event_id": block.get("meta", {}).get("id"),
+                }
+        return None
+
+    def _next_reminder(self) -> dict[str, Any] | None:
+        active = reminder_tools.SCHEDULER.list_active()
+        if not active:
+            return None
+        return min(active, key=lambda reminder: reminder.get("when", ""))
 
     async def _execute_plan_steps(self, plan: RoutingPlan, user_turn: UserTurn | None) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []

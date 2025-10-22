@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import time
+from datetime import datetime, timezone
 from io import BytesIO
 from collections.abc import Callable
 from typing import Any
@@ -29,6 +30,7 @@ from jarvis.audio.wakeword.base import WakeWordEngine
 from jarvis.audio.wakeword.openwakeword import OpenWakeWordEngine
 from jarvis.audio.wakeword.porcupine import PorcupineWakeWordEngine
 from jarvis.config import AppSettings, load_settings, project_root
+from jarvis.llm import router_modes
 from jarvis.llm.providers.gemini import GeminiProvider
 from jarvis.llm.providers.ollama import OllamaProvider
 from jarvis.llm.router import Router
@@ -46,11 +48,14 @@ from jarvis.transcription import VoskStream
 from jarvis.transcription.base import TranscriptionEngine
 from jarvis.tts.kokoro import KokoroTTSClient
 from jarvis.tts.voice_router import VoiceRouter, load_router
+from jarvis.tools import planner as planner_tools
+from jarvis.tools import tasks as tasks_tools
 from jarvis.tools.ingest import register_ingest_tools
-from jarvis.tools.registry import RegistryToolExecutor, ToolContext, ToolRegistry
+from jarvis.tools.registry import RegistryToolExecutor, ToolContext, ToolRegistry, register_productivity_tools
 from jarvis.tools.retrieve import register_retrieval_tools
 from jarvis.tools.taskgraph import register_taskgraph_tools
 from jarvis.ui.websocket import FloatingUIBridge
+from jarvis.orchestrator import clock
 
 
 if HAS_LANGDETECT:
@@ -414,6 +419,7 @@ class Runtime:
         self._voice_router = voice_router
         self._tasks: set[asyncio.Task] = set()
         self._transcription_task: asyncio.Task | None = None
+        self._planner_task: asyncio.Task | None = None
         self._wake_hit: WakeWordHit | None = None
         self._manual_active = False
         self._manual_active_deadline = 0.0
@@ -432,6 +438,8 @@ class Runtime:
         self._switch_lock = asyncio.Lock()
         self._tts_sessions: list[dict[str, object]] = []
         self._agent_step_id = 0
+        self._clock = clock.CLOCK
+        self._last_background_plan: dict[str, Any] | None = None
 
     async def start(self) -> None:
         self._logger.info("runtime.starting", engine=self._transcriber_name)
@@ -449,6 +457,8 @@ class Runtime:
         await ui_bridge.publish_state("PERSONA", self._persona.active_profile())
         await self._scheduler.start()
         await self._monitor.start()
+        self._planner_task = asyncio.create_task(self._planner_loop(), name="planner-loop")
+        self._tasks.add(self._planner_task)
         await self._soundfx.play("boot_sequence", await_completion=False)
 
     async def shutdown(self) -> None:
@@ -548,6 +558,31 @@ class Runtime:
 
     def tts_sessions(self) -> list[dict[str, object]]:
         return list(self._tts_sessions)
+
+    async def _planner_loop(self) -> None:
+        interval = 180.0
+        while not self._shutdown_in_progress:
+            try:
+                await self._planner_tick()
+            except Exception as exc:  # pragma: no cover - background safety
+                self._logger.warning("planner.loop.error", error=str(exc))
+            await self._clock.sleep(interval)
+
+    async def _planner_tick(self) -> None:
+        today = datetime.now(timezone.utc).date().isoformat()
+        tasks_tools.sync_from_apple(None)
+        plan = planner_tools.plan_day({"date": today})
+        if plan != self._last_background_plan:
+            diff: list[dict[str, Any]] = []
+            if self._last_background_plan:
+                seen = {block["start"]: block for block in self._last_background_plan.get("blocks", [])}
+                diff = [block for block in plan.get("blocks", []) if block.get("start") not in seen]
+            self._last_background_plan = plan
+            self._orchestrator.cache_plan(plan)
+            payload: dict[str, Any] = {"plan": plan, "origin": "background"}
+            if diff:
+                payload["diff"] = diff
+            await ui_bridge.publish_state("PLANNER", payload)
 
     async def _publish_llm_step(
         self,
@@ -1217,18 +1252,22 @@ async def bootstrap_runtime() -> Runtime:
     register_retrieval_tools(tool_registry)
     register_ingest_tools(tool_registry)
     register_taskgraph_tools(tool_registry)
-    logger.info("tool.registry.ready", tools=tool_registry.available())
+    register_productivity_tools(tool_registry)
+
+    router_ref: dict[str, Router | None] = {"router": None}
 
     def tool_context_factory() -> ToolContext:
-        return ToolContext(memory=memory)
-
-    tool_executor = RegistryToolExecutor(tool_registry, tool_context_factory)
+        return ToolContext(memory=memory, router=router_ref["router"])
 
     ollama = OllamaProvider(settings.llm.ollama_host)
     gemini = GeminiProvider(settings.llm.gemini_api_key) if settings.llm.gemini_api_key else None
     cost_budget = CostBudget(daily_cap_usd=settings.llm.max_gemini_daily_usd)
     router_policies = RouterPolicies(cost_budget=cost_budget)
     router = Router(ollama=ollama, gemini=gemini, policies=router_policies)
+    router_modes.attach_router(router)
+    router_ref["router"] = router
+    tool_executor = RegistryToolExecutor(tool_registry, tool_context_factory)
+    logger.info("tool.registry.ready", tools=tool_registry.available())
 
     voice_router = load_router()
     kokoro = KokoroTTSClient(

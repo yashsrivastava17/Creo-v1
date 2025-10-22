@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 @dataclass
@@ -9,10 +9,10 @@ class CostBudget:
     daily_cap_usd: float | None = None
     warning_ratio: float = 0.85
     _spent_today: float = 0.0
-    _day_started: datetime = field(default_factory=datetime.utcnow)
+    _day_started: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def reset_if_needed(self) -> None:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if now.date() != self._day_started.date():
             self._spent_today = 0.0
             self._day_started = now
@@ -47,4 +47,30 @@ class RouterPolicies:
         return self.slow_path_latency_ms if need_big_reasoning else self.fast_path_latency_ms
 
 
-__all__ = ["RouterPolicies", "CostBudget"]
+@dataclass(slots=True)
+class PlannerModeConfig:
+    focus_minutes: int
+    prep_buffer_min: int
+    description: str = ""
+
+
+@dataclass
+class PlannerPolicies:
+    default_mode: str = "balanced"
+    microbreak_minutes: int = 5
+    followup_minutes: int = 10
+    workday_start_hour: int = 9
+    workday_end_hour: int = 18
+    modes: dict[str, PlannerModeConfig] = field(
+        default_factory=lambda: {
+            "speed": PlannerModeConfig(focus_minutes=30, prep_buffer_min=10, description="Quick triage"),
+            "balanced": PlannerModeConfig(focus_minutes=45, prep_buffer_min=15, description="Default planning"),
+            "deep": PlannerModeConfig(focus_minutes=60, prep_buffer_min=20, description="Deep work heavy"),
+        }
+    )
+
+    def mode_settings(self, name: str) -> PlannerModeConfig:
+        return self.modes.get(name, self.modes[self.default_mode])
+
+
+__all__ = ["RouterPolicies", "CostBudget", "PlannerPolicies", "PlannerModeConfig"]

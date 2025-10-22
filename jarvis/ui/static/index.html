@@ -354,6 +354,127 @@
         flex-wrap: wrap;
       }
 
+      .planner-card {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      .planner-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .planner-header h2 {
+        margin: 0;
+        font-size: 1rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--text-soft);
+      }
+
+      .planner-header .mode-label {
+        display: block;
+        font-size: 0.75rem;
+        color: var(--accent);
+        letter-spacing: 0.05em;
+      }
+
+      .mode-buttons {
+        display: flex;
+        gap: 6px;
+      }
+
+      .mode-buttons button {
+        border: 0;
+        border-radius: 10px;
+        padding: 6px 12px;
+        cursor: pointer;
+        background: rgba(15, 23, 42, 0.7);
+        color: var(--text-soft);
+        transition: background 0.2s ease, color 0.2s ease;
+      }
+
+      .mode-buttons button.active {
+        background: rgba(74, 222, 128, 0.16);
+        color: #bbf7d0;
+      }
+
+      .whats-next {
+        font-size: 0.9rem;
+        padding: 8px 12px;
+        border-radius: 12px;
+        background: rgba(59, 130, 246, 0.12);
+        border: 1px solid rgba(59, 130, 246, 0.18);
+      }
+
+      .calendar-timeline {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: 280px;
+        overflow-y: auto;
+      }
+
+      .timeline-block {
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: rgba(15, 23, 42, 0.75);
+        border: 1px solid rgba(148, 163, 184, 0.16);
+      }
+
+      .timeline-block .time {
+        font-size: 0.8rem;
+        color: var(--text-soft);
+      }
+
+      .timeline-block .title {
+        font-size: 0.95rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+
+      .timeline-block .meta {
+        font-size: 0.75rem;
+        color: rgba(148, 163, 184, 0.75);
+      }
+
+      .timeline-block.event {
+        border-left: 3px solid rgba(59, 130, 246, 0.65);
+      }
+
+      .timeline-block.focus {
+        border-left: 3px solid rgba(34, 197, 94, 0.65);
+      }
+
+      .timeline-block.prep {
+        border-left: 3px solid rgba(250, 204, 21, 0.65);
+      }
+
+      .planner-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .planner-actions button {
+        border: 0;
+        border-radius: 10px;
+        padding: 8px 14px;
+        background: rgba(74, 222, 128, 0.12);
+        color: var(--accent);
+        cursor: pointer;
+      }
+
+      .planner-privacy {
+        margin: 0;
+        font-size: 0.75rem;
+        color: var(--text-soft);
+      }
+
       .chat-panel {
         flex: 1;
         display: flex;
@@ -773,6 +894,30 @@
 
         <div class="system-tags" id="system-tags"></div>
 
+        <section class="planner-card skeuo-card" id="calendar-panel">
+          <div class="planner-header">
+            <div>
+              <h2>Day Planner</h2>
+              <span class="mode-label">Quiet Mode</span>
+            </div>
+            <div class="mode-buttons">
+              <button type="button" data-mode="speed">Speak</button>
+              <button type="button" data-mode="balanced" class="active">Quiet</button>
+              <button type="button" data-mode="deep">Silent</button>
+            </div>
+          </div>
+          <div class="whats-next">Waiting for plan…</div>
+          <div class="calendar-timeline">
+            <p class="empty">No schedule yet. Ask “Plan my day.”</p>
+          </div>
+          <div class="planner-actions">
+            <button type="button" class="apply-plan" disabled>Apply plan</button>
+            <button type="button" class="skip-plan" disabled>Skip</button>
+            <button type="button" class="edit-plan" disabled>Edit</button>
+          </div>
+          <p class="planner-privacy">Captured screens stay on this Mac. Jarvis only reads them locally.</p>
+        </section>
+
         <section class="chat-panel skeuo-card">
           <div class="chat-log" id="chat-log">
             <div class="chat-empty" id="chat-empty">Start a quick text chat or use the wake word.</div>
@@ -823,6 +968,69 @@
     </div>
 
     <script>
+      (() => {
+        const MODE_LABELS = { speed: "Speak Mode", balanced: "Quiet Mode", deep: "Silent Mode" };
+        class CalendarPanel {
+          constructor(root) {
+            this.root = root;
+            this.modeButtonRow = root.querySelector(".mode-buttons");
+            this.timeline = root.querySelector(".calendar-timeline");
+            this.nextBar = root.querySelector(".whats-next");
+            this.actions = Array.from(root.querySelectorAll(".planner-actions button"));
+          }
+          setMode(mode) {
+            if (!this.modeButtonRow) return;
+            this.modeButtonRow.querySelectorAll("button").forEach((btn) => {
+              const active = btn.dataset.mode === mode;
+              btn.classList.toggle("active", active);
+              btn.setAttribute("aria-pressed", active ? "true" : "false");
+            });
+            const label = MODE_LABELS[mode] || mode;
+            this.root.querySelector(".mode-label").textContent = label;
+          }
+          updatePlan(plan) {
+            if (!plan) return;
+            this.setMode(plan.mode || "balanced");
+            this._renderTimeline(plan.blocks || []);
+            this._renderNext(plan.blocks || []);
+          }
+          _renderTimeline(blocks) {
+            if (!this.timeline) return;
+            this.timeline.innerHTML = "";
+            this.actions.forEach((btn) => { btn.disabled = !blocks.length; });
+            if (!blocks.length) {
+              this.timeline.innerHTML = `<p class="empty">No events yet. Ask “Plan my day”.</p>`;
+              return;
+            }
+            blocks.forEach((block) => {
+              const el = document.createElement("div");
+              el.className = `timeline-block ${block.type}`;
+              el.innerHTML = `
+                <div class="time">${formatTime(block.start)} – ${formatTime(block.end)}</div>
+                <div class="title">${block.label}</div>
+                <div class="meta">${formatMeta(block)}</div>
+              `;
+              this.timeline.appendChild(el);
+            });
+          }
+          _renderNext(blocks) {
+            if (!this.nextBar) return;
+            const now = Date.now();
+            const upcoming = blocks
+              .map((b) => ({ ...b, startTs: Date.parse(b.start || "") }))
+              .filter((b) => !Number.isNaN(b.startTs) && b.startTs >= now)
+              .sort((a, b) => a.startTs - b.startTs)[0];
+            if (!upcoming) { this.nextBar.textContent = "Nothing scheduled. Enjoy the open space."; return; }
+            const start = formatTime(upcoming.start);
+            this.nextBar.textContent = `${start} — ${upcoming.label}`;
+          }
+        }
+        function formatTime(v){ if(!v) return "--"; const d=new Date(v); return Number.isNaN(d.getTime())?"--":d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}); }
+        function formatMeta(b){ if(b.type==="event"&&b.meta?.location) return b.meta.location; if(b.type==="focus"&&b.meta?.list) return `List: ${b.meta.list}`; if(b.type==="prep") return "Prep buffer"; return ""; }
+        window.CalendarPanel = CalendarPanel;
+      })();
+    </script>
+    <script>
       const stateEl = document.getElementById("state");
       const ringEl = document.getElementById("ring");
       const chatForm = document.getElementById("chat-form");
@@ -833,7 +1041,7 @@
       const personaVoiceEl = document.getElementById("persona-voice");
       const personaSelect = document.getElementById("persona-select");
       const voicePanel = document.getElementById("voice-persona-panel");
-      const voiceCards = Array.from(voicePanel.querySelectorAll(".voice-card"));
+      const voiceCards = Array.from(voicePanel ? voicePanel.querySelectorAll(".voice-card") : []);
       const voicePreviewAudio = new Audio();
       const asrEl = document.getElementById("state"); // fallback for ASR status via state pill subtitle
       const audioMeterFill = document.getElementById("audio-meter-fill");
@@ -857,6 +1065,18 @@
       const soundfxFileInput = document.getElementById("soundfx-file");
       const adminFeedback = document.getElementById("admin-feedback");
       const sleepToggle = document.getElementById("sleep-toggle");
+      const calendarPanelRoot = document.getElementById("calendar-panel");
+      const calendarPanel = calendarPanelRoot ? new CalendarPanel(calendarPanelRoot) : null;
+      const plannerModeButtons = calendarPanelRoot ? Array.from(calendarPanelRoot.querySelectorAll(".mode-buttons button")) : [];
+
+      plannerModeButtons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const mode = btn.dataset.mode;
+          if (!mode) return;
+          if (calendarPanel) calendarPanel.setMode(mode);
+          updateSystemTags({ text: `Planner mode → ${mode}` });
+        });
+      });
 
       const SAMPLE_TEXT_EN = "Good morning, this is Creo.";
       const SAMPLE_TEXT_HI = "सुप्रभात, यह क्रेओ बोल रहा है।";
@@ -1327,6 +1547,17 @@
         }
         if (data.payload?.persona_profile) {
           updatePersonaInfo(data.payload.persona_profile);
+        }
+
+        if (data.state === "PLANNER" || (data.payload && data.payload.plan)) {
+          const planPayload = data.payload?.plan ? data.payload.plan : data.payload;
+          if (calendarPanel && planPayload) {
+            calendarPanel.updatePlan(planPayload);
+          }
+          const diff = data.payload?.diff;
+          if (Array.isArray(diff) && diff.length > 0) {
+            updateSystemTags({ text: `Planner updated (+${diff.length})` });
+          }
         }
 
         if (data.state === "HOTWORD_HEARD" && data.payload?.keyword === "manual") {

@@ -49,12 +49,23 @@ class VoiceRouter:
         variant_cfg = variants.get(variant_name)
         if not variant_cfg:
             raise ValueError(f"Unknown variant '{variant_name}' for persona '{persona}'")
-        weights = variant_cfg.get(lang) or variant_cfg.get("any")
-        if not weights:
+        slot = variant_cfg.get(lang) or variant_cfg.get("any")
+        if not slot:
             raise ValueError(
                 f"No weights configured for persona='{persona}', variant='{variant_name}', lang='{lang}'"
             )
-        return dict(weights), variant_name
+        # Expand to a flat map for tests: pull params up one level
+        flat: dict[str, Any] = {}
+        params = slot.get("params") if isinstance(slot, dict) else None
+        if isinstance(params, dict):
+            flat.update(params)
+            # Backward-compat aliases for historical typos in tests/usage.
+            if "am_michael" in flat and "am_micheal" not in flat:
+                flat["am_micheal"] = flat["am_michael"]
+        # For convenience, also expose the chosen voice id
+        if isinstance(slot, dict) and "voice" in slot:
+            flat["voice"] = slot["voice"]
+        return flat, variant_name
 
     def camera_event(self, event: str) -> dict[str, Any] | None:
         return self._camera_events.get(event)
